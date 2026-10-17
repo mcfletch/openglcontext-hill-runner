@@ -17,7 +17,9 @@ oglc-hill-runner --no-forest --no-photos   # no use of the forest demo's art, no
 | Left, Right | Hop to the next path, unless a hedge stands between the two or the paths have drawn apart |
 | Up | Jump over a log or a boulder, or up to a jewel |
 | Down | Slide under a gate (in the air: drop, then slide) |
-| Escape | Menu: resume, restart, settings, credits, quit |
+| Escape | Menu: resume, restart, demo, settings, credits, quit. Demo hands the run to the computer, which runs without a crash for as long as it is left; the menu's Play takes it back |
+| Alt+F | Show or hide the developer overlay: frame rate, timings and draw counts |
+| F2 | Save a screenshot to the pictures folder, as `Hill-Runner-0001.png` and so on |
 
 The three trails are 0.5 m wide with 0.2 m between them, so a hop is one big step. The runner speeds
 up from 10 to 24 m/s and cannot slow down. A log, a boulder, a gate board or a wall ends the run; they
@@ -45,10 +47,12 @@ trail carries its runner onto the nearest path of it.
 | The hill, one tile for each 72 m, made as the runner nears it | `GeneratedTiles`, `OpenGLContext.loaders.tiles3d.generated` |
 | The runner, with `Sprint_Loop`, `Jog_Fwd_Loop`, `Jump_Start`, `Jump_Loop`, `Slide` and `Death01` | `OpenGLContext.character.CharacterModel` |
 | Sun with cascaded shadow maps, PBR materials, fog | `DirectionalLight`, the PBR pass, `Fog` |
-| Ground and trail photographs (CC0) | `OpenGLContext.loaders.cc0`, with procedural `OpenGLContext.scenegraph.surfaces` as the fallback |
-| Wood, brick and stone textures, rocks | `OpenGLContext.scenegraph.surfaces` |
+| Ground, trail, rock and bark photographs (CC0) | `OpenGLContext.loaders.cc0.physical_material`, with procedural `OpenGLContext.scenegraph.surfaces` as the fallback |
+| Rocks, logs, fence rails and dry-stone walls | `OpenGLContext.scenegraph.natural` (`stone`, `timber`, `rubble`) |
+| Rock country's ground: flat faces scraped into the land | `OpenGLContext.scenegraph.terrain.RockRelief` |
+| Procedural textures for bark, sawn ends and the ground | `OpenGLContext.scenegraph.surfaces` |
 | Trees: the forest demo's models, real branches near and cards far, swapped a stretch at a time | `VegetationField.replant`, from the forest demo's art |
-| Grass, ferns, nettles, flowers on the forest floor | `GroundCover`, from the forest demo's art |
+| Grass, ferns, nettles, flowers on the forest floor | `GroundCover`, from the forest demo's art: the grass and the other plants as two nodes (`groundcover`) |
 | Chase camera | `OpenGLContext.move.followcam.FollowCamera` |
 | HUD, pause and end-of-run screens | `OpenGLContext.ui.hudwidgets`, `OpenGLContext.ui` panels |
 | Music, footsteps, grunt, slide, coins | the engine's audio mixer, through `audioscene.engine_for` |
@@ -68,6 +72,7 @@ The rules have no GL and are tested without a window.
 | `chase` | The point the camera follows |
 | `session` | One run advanced a frame at a time: the above, together |
 | `scenery`, `look`, `tiles` | The hill as meshes and materials, and the tile generator; where one country gives way to another the second ground is blended over the first |
+| `groundcover` | The grass, grown tall, and the other plants of the forest demo's art as two nodes, with where each grows |
 | `woods` | The forest demo's trees, planted a stretch of hill at a time, clear of the trails |
 | `treasure`, `hud`, `menu`, `credits`, `sound` | Coins and jewels in view, the HUD, the screens, the credits shown at start and in the menu, the engine's audio mixer |
 | `app`, `run` | The window and the command |

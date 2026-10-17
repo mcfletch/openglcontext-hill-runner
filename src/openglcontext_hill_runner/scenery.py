@@ -17,8 +17,10 @@ import enum
 import math
 import threading
 from collections import OrderedDict
+from typing import Any
 
 import numpy as np
+from OpenGLContext.scenegraph import natural
 from OpenGLContext.scenegraph import surfaces as sf
 from OpenGLContext.scenegraph.surfaces import Geometry
 
@@ -49,8 +51,15 @@ ROCK_LARGEST = 0.7
 ROCKS_PER_CHUNK = 46
 #: The densest a country packs rocks, as a multiple of a forest's.
 ROCK_DENSITY_MAX = 6.0
+#: A rock bigger than this has smaller rocks lying about it.
+CLUSTER_FROM = 0.3
+#: How far past the edge of an obstacle the middle of the gap between its path and the next
+#: lies. Anything standing beside an obstacle stands there, 0.2 m wide, and no wider.
+GAP_BESIDE = c.LANE_WIDTH / 2 - c.OBSTACLE_HALF_WIDTH
 HEDGE_WIDTH = 0.14
 HEDGE_HEIGHT = 0.7
+#: Metres between the cross-sections of a dry-stone wall.
+WALL_STEP = 0.25
 #: Trees of the simple kind per side per chunk, and how close to the paths the nearest may stand.
 TREES_PER_SIDE = 12
 TREE_NEAREST = 2.2
@@ -60,11 +69,9 @@ TREE_FARTHEST = 40.0
 class Part(enum.Enum):
     """What a piece of scenery is made of; the tile generator gives each a material."""
 
-    WOOD = 'wood'
-    BRICK = 'brick'
-    STONE = 'stone'
     ROCK = 'rock'
     BARK = 'bark'
+    CUT = 'cut'
     FOLIAGE = 'foliage'
 
 
@@ -197,9 +204,9 @@ def obstacle(land: Landscape, thing: c.Obstacle, origin: float = 0.0) -> dict[Pa
     """The pieces of an obstacle, by what each is made of.
 
     It stands across the paths it blocks, turned to the way the trail runs there, and fills
-    the width of them: a log or a boulder for a low obstacle, a gate with a board hanging in
-    it for a high one, a brick wall or a pile of rock for a wall. Which of the two each kind
-    is comes from where it stands. z is measured from ``origin``.
+    the width of them: a fallen trunk or a boulder for a low obstacle, a fence of rails on two
+    posts for a high one, a stack of logs or a pile of rock for a wall. Which of the two each
+    kind is comes from where it stands. z is measured from ``origin``.
     """
     course = land.course
     d = thing.distance
@@ -209,124 +216,156 @@ def obstacle(land: Landscape, thing: c.Obstacle, origin: float = 0.0) -> dict[Pa
     ground = float(land.height(x, d))
     turn = -math.atan((course.lane_x(thing.lane, d + 1.0) - course.lane_x(thing.lane, d - 1.0)) / 2.0)
     rng = c.stream(course.seed, 'obstacle', int(d * 10), thing.lane + 2, thing.span)
-    boulder = rng.random() < 0.5
-
-    def placed(local: Geometry) -> Geometry:
-        return sf.placed(local, (x, ground, origin - d), (0.0, 1.0, 0.0, turn))
+    natural_stone = rng.random() < 0.5
+    stand = ((x, ground, origin - d), (0.0, 1.0, 0.0, turn))
 
     if thing.kind is c.Kind.LOW:
-        if boulder:
-            return {Part.ROCK: placed(_boulder(rng, width, c.LOW_TOP, c.DEPTH[c.Kind.LOW]))}
-        return {Part.WOOD: placed(_log(width))}
+        if natural_stone:
+            return {Part.ROCK: sf.placed(_boulders(rng, width, c.LOW_TOP, c.DEPTH[c.Kind.LOW],
+                                                   thing.span), *stand)}
+        return _placed(_log(rng, width), stand)
     if thing.kind is c.Kind.HIGH:
-        return {Part.WOOD: placed(_gate(width))}
-    if boulder:
-        return {Part.ROCK: placed(_boulder(rng, width, c.WALL_TOP, c.DEPTH[c.Kind.WALL]))}
-    return {Part.BRICK: placed(sf.placed(
-        sf.block((width, c.WALL_TOP + 0.4, 0.8), repeat=0.5, chamfer=0.04),
-        (0.0, (c.WALL_TOP - 0.4) / 2, 0.0)))}
+        return _placed(_fence(rng, width), stand)
+    if natural_stone:
+        return {Part.ROCK: sf.placed(_boulders(rng, width + 2 * GAP_BESIDE, c.WALL_TOP, c.DEPTH[c.Kind.WALL],
+                                               thing.span + 1, pile=True), *stand)}
+    return _placed(_woodpile(rng, width), stand)
 
 
-def _log(width: float) -> Geometry:
-    """A trunk lying across the paths, as high as a jump must clear."""
+def _placed(parts: dict[Part, Geometry], stand: tuple[Any, Any]) -> dict[Part, Geometry]:
+    """Every piece of ``parts`` moved and turned as ``stand`` says."""
+    return {part: sf.placed(geometry, *stand) for part, geometry in parts.items()}
+
+
+def _turned(timber: tuple[Geometry, Geometry], position: tuple[float, float, float],
+            rotation: tuple[float, float, float, float]) -> dict[Part, list[Geometry]]:
+    """A trunk's bark and ends, placed."""
+    bark, ends = timber
+    return {Part.BARK: [sf.placed(bark, position, rotation)],
+            Part.CUT: [sf.placed(ends, position, rotation)]}
+
+
+def _joined(pieces: list[dict[Part, list[Geometry]]]) -> dict[Part, Geometry]:
+    """The pieces of several trunks, one mesh for each material."""
+    gathered: dict[Part, list[Geometry]] = {}
+    for piece in pieces:
+        for part, geometries in piece.items():
+            gathered.setdefault(part, []).extend(geometries)
+    return {part: sf.merge(geometries) for part, geometries in gathered.items()}
+
+
+def _log(rng: np.random.Generator, width: float) -> dict[Part, Geometry]:
+    """A fallen trunk across the paths, its crest as high as a jump must clear."""
     radius = c.LOW_TOP / 2
-    lying = (0.0, 0.0, 1.0, math.pi / 2)
-    body = sf.placed(sf.cylinder(radius, width, sides=16, repeat=0.5), (0.0, radius, 0.0), lying)
-    caps = [sf.placed(sf.polygon(radius, sides=16, repeat=0.5),
-                      (side * width / 2, radius, 0.0),
-                      (0.0, 1.0, 0.0, side * math.pi / 2)) for side in (-1, 1)]
-    return sf.merge([body, *caps])
+    bark, ends = natural.timber(rng, width + 2 * GAP_BESIDE, radius, sides=24)
+    lift = c.LOW_TOP - float(max(bark.positions[:, 1].max(), ends.positions[:, 1].max()))
+    return _joined([_turned((bark, ends), (0.0, lift, 0.0), (0.0, 1.0, 0.0, 0.0))])
 
 
-def _lumpy_sphere(rng: np.random.Generator, sides: int, amount: float) -> tuple[Geometry, np.ndarray]:
-    """A unit sphere and a factor for each of its vertices, near 1 within ``amount``.
+def _fence(rng: np.random.Generator, width: float) -> dict[Part, Geometry]:
+    """Four rails lashed across two posts, from the height a slide clears to the height a jump
+    reaches: slide under, because a jump meets the rails.
 
-    Vertices that share a place share a factor, so the surface stays closed.
+    The posts stand in the gaps beside the blocked paths and the rails end at them, so nothing
+    reaches into the path of a runner in the next lane.
     """
-    ball = sf.sphere(1.0, sides=sides)
-    _, first, inverse = np.unique(np.round(ball.positions, 3), axis=0, return_index=True,
-                                  return_inverse=True)
-    return ball, (1.0 + amount * (rng.random(len(first)) - 0.5))[inverse.reshape(-1)]
+    post_radius, rail_radius = 0.075, 0.15
+    top = c.HIGH_TOP + 0.25
+    gap = width / 2 + GAP_BESIDE
+    pieces = []
+    for side in (-1, 1):
+        post = natural.timber(rng, top + 0.4, post_radius, rings=10, sides=10, crook=0.01)
+        pieces.append(_turned(post, (side * gap, (top - 0.4) / 2, 0.0), (0.0, 0.0, 1.0, math.pi / 2)))
+    rails = 4
+    reach = 1.2 * rail_radius
+    rise = c.HIGH_TOP - c.HIGH_BOTTOM - 2 * reach
+    for k in range(rails):
+        rail = natural.timber(rng, 2 * gap + 2 * post_radius, rail_radius, sides=12, crook=0.01)
+        pieces.append(_turned(rail, (0.0, c.HIGH_BOTTOM + reach + k * rise / (rails - 1),
+                                     (0.04 if k % 2 else -0.04)), (0.0, 1.0, 0.0, 0.0)))
+    return _joined(pieces)
 
 
-def _boulder(rng: np.random.Generator, width: float, top: float, depth: float,
-             sunk: float = 0.12) -> Geometry:
-    """A lumpy rock filling ``width`` by ``depth``, its top ``top`` above the ground."""
-    ball, lumpy = _lumpy_sphere(rng, 10, 0.16)
-    raw = ball.positions * lumpy[:, None]
-    size = np.array([width, top + sunk, depth])
-    scale = size / np.ptp(raw, axis=0)
-    positions = (raw - raw.min(axis=0)) * scale + np.array([-width / 2, -sunk, -depth / 2])
-    normals = ball.normals / scale
+def _woodpile(rng: np.random.Generator, width: float) -> dict[Part, Geometry]:
+    """A stack of logs seen end-on, as high as the rules say a wall is."""
+    rows = 7
+    radius = c.WALL_TOP / (2.0 + (rows - 1) * math.sqrt(3.0))
+    depth = c.DEPTH[c.Kind.WALL]
+    across = max(2, math.ceil(width / (2 * radius)))
+    pieces = []
+    for row in range(rows):
+        count = across - row % 2
+        for k in range(count):
+            r = radius * rng.uniform(0.92, 1.04)
+            x = (k - (count - 1) / 2) * 2 * radius
+            y = radius + row * radius * math.sqrt(3.0)
+            log = natural.timber(rng, depth * rng.uniform(0.9, 1.0), r, repeat=0.5, rings=7,
+                                 sides=10)
+            pieces.append(_turned(log, (x, y - 0.1, rng.uniform(-0.04, 0.04)),
+                                  (0.0, 1.0, 0.0, math.pi / 2 + rng.uniform(-0.05, 0.05))))
+    return _joined(pieces)
+
+
+def _fitted(geometry: Geometry, low: np.ndarray, high: np.ndarray) -> Geometry:
+    """``geometry`` stretched along each axis to fill the box from ``low`` to ``high``."""
+    p = geometry.positions.astype(float)
+    scale = (high - low) / np.maximum(np.ptp(p, axis=0), 1e-9)
+    positions = (p - p.min(axis=0)) * scale + low
+    normals = geometry.normals / scale
     normals /= np.linalg.norm(normals, axis=1, keepdims=True)
-    return Geometry(positions.astype('f'), normals.astype('f'),
-                    (ball.texcoords * np.array([width, top]) * 0.7).astype('f'),
-                    ball.tangents, ball.indices)
+    tangents = geometry.tangents.copy()
+    tangents[:, :3] = tangents[:, :3] * scale
+    tangents[:, :3] /= np.linalg.norm(tangents[:, :3], axis=1, keepdims=True)
+    return Geometry(positions.astype('f'), normals.astype('f'), geometry.texcoords,
+                    tangents.astype('f'), geometry.indices)
 
 
-def _gate(width: float) -> Geometry:
-    """A gate with a board hanging in it: slide under, because a jump meets the board."""
-    half = width / 2
-    top = c.HIGH_TOP + 0.1
-    posts = [sf.placed(sf.block((0.07, top + 0.3, 0.07), repeat=0.5),
-                       (side * (half + 0.035), (top - 0.3) / 2, 0.0)) for side in (-1, 1)]
-    beam = sf.placed(sf.block((width + 0.24, 0.09, 0.09), repeat=0.5),
-                     (0.0, c.HIGH_TOP + 0.05, 0.0))
-    board_height = c.HIGH_TOP - 0.02 - c.HIGH_BOTTOM
-    board = sf.placed(sf.block((width - 0.04, board_height, 0.07), repeat=0.5),
-                      (0.0, c.HIGH_BOTTOM + board_height / 2, 0.0))
-    return sf.merge([*posts, beam, board])
+def _boulders(rng: np.random.Generator, width: float, top: float, depth: float, count: int,
+              pile: bool = False, sunk: float = 0.12) -> Geometry:
+    """Rocks across ``width``, ``depth`` deep and ``top`` high above the ground, sunk ``sunk``
+    into it: one stone for each path across, or with ``pile`` a heap of ``count`` stones in
+    layers."""
+    low = np.array([-width / 2, -sunk, -depth / 2])
+    if not pile:
+        stones = []
+        step = width / count
+        for k in range(count):
+            reach = step / 2 * rng.uniform(1.0, 1.15)
+            tall = top if k == 0 else top * rng.uniform(0.9, 1.0)
+            rock = natural.stone(rng, (reach, (tall + sunk) / 2, depth / 2), 3, repeat=1.0)
+            centre = -width / 2 + (k + 0.5) * step
+            stones.append(_fitted(rock, np.array([centre - reach, -sunk, -depth / 2]),
+                                  np.array([centre + reach, tall, depth / 2])))
+        return sf.merge(stones)
+    layers = (0.0, 0.45, 0.75)
+    stones = []
+    for layer, floor in enumerate(layers):
+        ceiling = layers[layer + 1] if layer + 1 < len(layers) else 1.0
+        across = max(1, count - layer)
+        for k in range(across):
+            centre = (k + 0.5) / across - 0.5
+            reach = 0.8 * width / across * rng.uniform(0.85, 1.0)
+            rock = natural.stone(rng, (reach, 0.3, depth * 0.45), 3, repeat=1.0)
+            bottom = floor * top - (sunk if layer == 0 else 0.2 * top)
+            stones.append(_fitted(rock, np.array([centre * width - reach, bottom,
+                                                  -depth * 0.5 * rng.uniform(0.8, 1.0)]),
+                                  np.array([centre * width + reach, ceiling * top,
+                                            depth * 0.5 * rng.uniform(0.8, 1.0)])))
+    heap = sf.merge(stones)
+    return _fitted(heap, low, np.array([width / 2, top, depth / 2]))
 
 
 def divider(land: Landscape, hedge: c.Divider, origin: float = 0.0) -> Geometry:
-    """A low stone wall between two paths, following the land and the trail along its span; z is
-    measured from ``origin``."""
+    """A low dry-stone wall between two paths, following the land and the trail along its span; z
+    is measured from ``origin``."""
     course = land.course
-    count = max(1, math.ceil((hedge.end - hedge.start) / ROW_STEP))
-    d = np.linspace(hedge.start, hedge.end, count + 1)
+    d = np.linspace(hedge.start, hedge.end, max(2, math.ceil((hedge.end - hedge.start) / WALL_STEP)) + 1)
     middle = np.array([(course.lane_x(hedge.lane, v) + course.lane_x(hedge.lane + 1, v)) / 2
                        for v in d])
-    ground = land.height(middle, d)
-    z = origin - d
-    half = HEDGE_WIDTH / 2
-    faces = []
-    for side in (-1, 1):                                           # the two long sides
-        bottom = np.stack([middle + side * half, ground - 0.3, z], axis=-1)
-        top = np.stack([middle + side * half, ground + HEDGE_HEIGHT, z], axis=-1)
-        faces.append(_ribbon(bottom, top, (side, 0.0, 0.0), flip=side < 0))
-    left = np.stack([middle - half, ground + HEDGE_HEIGHT, z], axis=-1)
-    right = np.stack([middle + half, ground + HEDGE_HEIGHT, z], axis=-1)
-    faces.append(_ribbon(left, right, (0.0, 1.0, 0.0), flip=True))
-    for end, toward in ((0, 1.0), (-1, -1.0)):                     # the two ends
-        low = np.stack([[middle[end] - half, middle[end] + half], [ground[end] - 0.3] * 2,
-                        [z[end]] * 2], axis=-1)
-        high = np.stack([[middle[end] - half, middle[end] + half], [ground[end] + HEDGE_HEIGHT] * 2,
-                         [z[end]] * 2], axis=-1)
-        faces.append(_ribbon(low, high, (0.0, 0.0, toward), flip=toward < 0))
-    return sf.merge(faces)
+    line = np.stack([middle, land.height(middle, d), origin - d], axis=-1)
+    rng = c.stream(course.seed, 'divider', hedge.lane + 2, int(hedge.start * 10))
+    return natural.rubble(rng, line, HEDGE_WIDTH, HEDGE_HEIGHT)
 
-
-def _ribbon(first: np.ndarray, second: np.ndarray, normal: tuple[float, float, float],
-            flip: bool) -> Geometry:
-    """A strip of quads between two polylines of equal length, all facing ``normal``."""
-    count = len(first)
-    positions = np.concatenate([first, second]).astype('f')
-    along = np.concatenate([np.cumsum(np.r_[0.0, np.linalg.norm(np.diff(first, axis=0), axis=1)])] * 2)
-    across = np.concatenate([np.zeros(count),
-                             np.full(count, float(np.linalg.norm(second[0] - first[0])))])
-    texcoords = np.stack([along, -across], axis=-1).astype('f')
-    steps = np.arange(count - 1)
-    quads = np.stack([steps, steps + 1, count + steps + 1, steps, count + steps + 1,
-                      count + steps], axis=1)
-    if flip:
-        quads = quads[:, [0, 2, 1, 3, 5, 4]]
-    tangent = np.array([0.0, 0.0, -1.0, 1.0], 'f')
-    return Geometry(positions, np.tile(np.asarray(normal, 'f'), (len(positions), 1)),
-                    texcoords, np.tile(tangent, (len(positions), 1)),
-                    quads.ravel().astype(np.uint32))
-
-
-# -- trees -----------------------------------------------------------------------------
 
 def _cone(radius: float, height: float, base: np.ndarray, sides: int = 8) -> Geometry:
     """A cone of ``sides`` faces standing on ``base`` (a point), smooth-shaded."""
@@ -386,22 +425,12 @@ def trees(land: Landscape, chunk: c.Chunk,
     return sf.merge(foliage), sf.merge(trunks)
 
 
-def _rock(rng: np.random.Generator, radius: float, centre: np.ndarray) -> Geometry:
-    """One rock: a lumpy, flattened ball sunk a little into the ground at ``centre``."""
-    ball, lumpy = _lumpy_sphere(rng, 8, 0.28)
-    scale = radius * np.array([1.0, 0.62, 1.0 + 0.35 * rng.random()]) * lumpy[:, None]
-    turn = rng.uniform(0.0, 2.0 * math.pi)
-    cos, sin = math.cos(turn), math.sin(turn)
-    positions = ball.positions * scale
-    positions = np.stack([positions[:, 0] * cos + positions[:, 2] * sin, positions[:, 1],
-                          -positions[:, 0] * sin + positions[:, 2] * cos], axis=-1)
-    normals = ball.normals / np.maximum(scale, 1e-6)
-    normals /= np.linalg.norm(normals, axis=1, keepdims=True)
-    normals = np.stack([normals[:, 0] * cos + normals[:, 2] * sin, normals[:, 1],
-                        -normals[:, 0] * sin + normals[:, 2] * cos], axis=-1)
-    return Geometry((positions + centre + (0.0, 0.25 * radius, 0.0)).astype('f'),
-                    normals.astype('f'), (ball.texcoords * radius * 2.0).astype('f'),
-                    ball.tangents, ball.indices)
+def _rock(rng: np.random.Generator, radius: float) -> Geometry:
+    """One rock about the origin, flattened a little and turned, the finer for being the bigger."""
+    divisions = 1 if radius < 0.22 else 2 if radius < 0.45 else 3
+    shape = (radius, radius * rng.uniform(0.55, 0.8), radius * rng.uniform(0.8, 1.3))
+    return sf.placed(natural.stone(rng, shape, divisions), (0.0, 0.0, 0.0),
+                     (0.0, 1.0, 0.0, rng.uniform(0.0, 2.0 * math.pi)))
 
 
 def rocks(land: Landscape, chunk: c.Chunk, origin: float = 0.0) -> Geometry | None:
@@ -423,10 +452,24 @@ def rocks(land: Landscape, chunk: c.Chunk, origin: float = 0.0) -> Geometry | No
     keep = ok & (rng.random(count) * ROCK_DENSITY_MAX < density) & (
         land.trail_gap(x, d) >= ROCK_NEAREST + ROCK_LARGEST)
     where = np.flatnonzero(keep)
-    ground = land.height(x[where], d[where])
-    parts = []
-    for i, base_height in zip(where, ground, strict=True):
+    sizes = []
+    for i in where:
         largest = ROCK_LARGEST * (1.0 + 0.5 * min(1.0, (density[i] - 1.0) / 4.0))
-        size = ROCK_SMALLEST + (largest - ROCK_SMALLEST) * float(rng.random()) ** 3
-        parts.append(_rock(rng, size, np.array([x[i], float(base_height), origin - d[i]])))
+        sizes.append(ROCK_SMALLEST + (largest - ROCK_SMALLEST) * float(rng.random()) ** 3)
+    # A big rock has smaller ones lying about its foot, as fallen rock does.
+    at = [(x[i], d[i], size) for i, size in zip(where, sizes, strict=True)]
+    for i, size in zip(where, sizes, strict=True):
+        if size > CLUSTER_FROM:
+            for _ in range(int(rng.integers(1, 4))):
+                turn, reach = rng.uniform(0.0, 2.0 * math.pi), size * rng.uniform(1.0, 1.7)
+                at.append((x[i] + reach * math.cos(turn), d[i] + reach * math.sin(turn),
+                           size * rng.uniform(0.25, 0.55)))
+    if not at:
+        return None
+    ex, ed, es = (np.array(column) for column in zip(*at, strict=True))
+    clear = land.trail_gap(ex, ed) >= ROCK_NEAREST
+    ground = land.height(ex, ed)
+    parts = [sf.placed(_rock(rng, float(es[j])), (float(ex[j]), float(ground[j]) + 0.2 * float(es[j]),
+                                                    float(origin - ed[j])))
+             for j in range(len(es)) if clear[j]]
     return sf.merge(parts) if parts else None

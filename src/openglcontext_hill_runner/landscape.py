@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 from OpenGLContext.noise import fbm, ridged
+from OpenGLContext.scenegraph.terrain import RockRelief
 
 from openglcontext_hill_runner import course as c
 
@@ -30,6 +31,13 @@ FORK_PENALTY = 2.0
 BRANCH_BLEND = 6.0
 #: Countries are worked out ahead for this many, which is further than anyone runs.
 ZONE_LIMIT = 6000
+#: Metres between the rows of the ground mesh, which is what the rock's faces are sampled at, and
+#: how far from the middle of a trail rock stands clear, and over how many metres it rises.
+GROUND_STEP = 0.5
+ROCK_CLEAR = 1.0
+ROCK_FADE = 1.5
+#: How high the bare rock of rock country stands above the land, in metres.
+ROCK_HEIGHT = 0.7
 FIRST_ZONE = 600.0
 ZONE_LENGTH = (320.0, 640.0)
 
@@ -72,9 +80,11 @@ class Country:
     ramp: float
     #: Scale of the hummocks and lumps.
     relief: float
-    #: Tree density, ground cover and rocks, each as a multiple of a forest's.
+    #: Tree density, the ferns, nettles and flowers under them, grass and rocks, each as a
+    #: multiple of a forest's.
     trees: float
     cover: float
+    grass: float
     rocks: float
     #: How many of the trees are conifers.
     conifers: float
@@ -84,11 +94,11 @@ class Country:
 
 
 COUNTRY = {
-    Biome.FOREST: Country(14.0, 24.0, 1.0, 1.0, 1.0, 1.0, 0.6, Layer.GRASS, (0.88, 0.95, 0.82)),
-    Biome.ROCKS: Country(28.0, 20.0, 1.6, 0.12, 0.2, 6.0, 0.95, Layer.ROCK, (0.92, 0.90, 0.88)),
-    Biome.SAND: Country(6.0, 40.0, 0.7, 0.0, 0.03, 1.6, 0.5, Layer.SAND, (1.0, 0.92, 0.74)),
-    Biome.MEADOW: Country(4.0, 60.0, 0.8, 0.06, 0.9, 0.35, 0.2, Layer.GRASS, (1.0, 1.0, 0.78)),
-    Biome.DENSE: Country(18.0, 22.0, 1.1, 2.2, 1.0, 0.7, 0.7, Layer.FOREST_FLOOR,
+    Biome.FOREST: Country(14.0, 24.0, 1.0, 1.0, 1.0, 0.8, 1.0, 0.6, Layer.GRASS, (0.88, 0.95, 0.82)),
+    Biome.ROCKS: Country(28.0, 20.0, 1.6, 0.12, 0.2, 0.25, 6.0, 0.95, Layer.ROCK, (0.92, 0.90, 0.88)),
+    Biome.SAND: Country(6.0, 40.0, 0.7, 0.0, 0.03, 0.2, 1.6, 0.5, Layer.SAND, (1.0, 0.92, 0.74)),
+    Biome.MEADOW: Country(4.0, 60.0, 0.8, 0.06, 0.12, 1.0, 0.35, 0.2, Layer.GRASS, (1.0, 1.0, 0.78)),
+    Biome.DENSE: Country(18.0, 22.0, 1.1, 2.2, 1.0, 0.5, 0.7, 0.7, Layer.FOREST_FLOOR,
                          (0.66, 0.78, 0.64)),
 }
 _BIOMES = tuple(Biome)
@@ -104,6 +114,11 @@ class Zone:
     length: float
 
 
+def _everywhere(x: Any, z: Any) -> Any:  # noqa: ARG001 a weight is asked for at (x, z)
+    """How rocky a place is where the caller has already worked that out: wholly."""
+    return np.ones_like(np.asarray(x, dtype=float))
+
+
 def _mix(values: "list[float]", weights: np.ndarray) -> np.ndarray:
     """A setting of each country, blended by how much of each country is at each point."""
     mixed: np.ndarray = np.tensordot(np.array(values), weights, axes=(0, 0))
@@ -115,6 +130,9 @@ class Landscape:
 
     def __init__(self, course: c.Course) -> None:
         self.course = course
+        #: The rock of rock country: its faces are scraped into it, as a boulder's are.
+        self.rock = RockRelief(where=_everywhere, height=ROCK_HEIGHT,
+                               seed=course.seed)
         rng = c.stream(course.seed, 'zones')
         sequence = list(_BIOMES)
         while len(sequence) < ZONE_LIMIT:
@@ -207,8 +225,13 @@ class Landscape:
         return self._blend([COUNTRY[b].trees for b in _BIOMES], x, distance)
 
     def cover_density(self, x: Any, distance: Any) -> np.ndarray:
-        """How thick ground cover grows at each point, as a multiple of a forest's."""
+        """How thick the ferns, nettles and flowers grow at each point, as a multiple of a
+        forest's."""
         return self._blend([COUNTRY[b].cover for b in _BIOMES], x, distance)
+
+    def grass_density(self, x: Any, distance: Any) -> np.ndarray:
+        """How thick the grass grows at each point, as a multiple of a forest's."""
+        return self._blend([COUNTRY[b].grass for b in _BIOMES], x, distance)
 
     def rock_density(self, x: Any, distance: Any) -> np.ndarray:
         """How many rocks lie about at each point, as a multiple of a forest's."""
@@ -258,7 +281,21 @@ class Landscape:
         form = 0.5 + 0.9 * fbm(xf * 0.021 + 3.0, df * 0.021 - 5.0, seed=21, octaves=4)
         height: np.ndarray = c.ground_height(df) + bank * away * form + self._relief(xf, df, gap, scale)
         height += self._character(xf, df, gap, w)
+        height += self._bare_rock(xf, df, gap, w)
         return np.asarray(height.reshape(shape))
+
+    def _bare_rock(self, x: np.ndarray, d: np.ndarray, gap: np.ndarray,
+                   w: np.ndarray) -> np.ndarray:
+        """Rock standing on the ground of rock country, scraped into flat faces, clear of the
+        trails and the strip beside them."""
+        rocky = w[Biome.ROCKS.value] * c.smooth((gap - ROCK_CLEAR) / ROCK_FADE)
+        found = c.smooth((rocky - self.rock.begins) / (self.rock.whole - self.rock.begins))
+        out = np.zeros_like(x)
+        near = found > 0.0
+        if near.any():
+            out[near] = found[near] * (self.rock.lift + self.rock.rock(x[near], d[near],
+                                                                       GROUND_STEP))
+        return out
 
     @staticmethod
     def _character(x: np.ndarray, d: np.ndarray, gap: np.ndarray, w: np.ndarray) -> np.ndarray:

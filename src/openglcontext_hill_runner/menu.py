@@ -31,13 +31,20 @@ def _button(text: str, name: str, action: Action, panel: Panel, chosen: list[str
 
 
 def pause_panel(on_resume: Action, on_restart: Action, on_settings: Action,
-                on_credits: Action, on_quit: Action) -> Panel:
-    """Escape's screen. Closing it any other way than a button resumes."""
+                on_credits: Action, on_quit: Action, on_demo: Action | None = None,
+                demo: bool = False) -> Panel:
+    """Escape's screen. Closing it any other way than a button resumes.
+
+    ``on_demo`` adds a button that hands the run to the computer, or back to the player where
+    ``demo`` says the computer is playing.
+    """
     panel = Panel(title=_('Paused'), modal=True, scrim=True, preferredColumns=28)
     chosen: list[str] = []
     panel.children = [Column(spacing=6, children=[
         _button(_('Resume'), 'resume', on_resume, panel, chosen, PRIMARY),
         _button(_('Restart'), 'restart', on_restart, panel, chosen),
+        *([_button(_('Play') if demo else _('Demo'), 'demo', on_demo, panel, chosen)]
+          if on_demo is not None else []),
         _button(_('Settings'), 'settings', on_settings, panel, chosen),
         _button(_('Credits'), 'credits', on_credits, panel, chosen),
         _button(_('Quit'), 'quit', on_quit, panel, chosen),

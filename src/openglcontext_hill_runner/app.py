@@ -26,17 +26,16 @@ from OpenGLContext.scenegraph.basenodes import (
     sceneGraph,
 )
 from OpenGLContext.scenegraph.generatedtiles import GeneratedTiles
-from OpenGLContext.scenegraph.vegetation.cover import GroundCover, read_cover_manifest
 from OpenGLContext.ui import dialogs, settings
 
 from openglcontext_hill_runner import course as c
 from openglcontext_hill_runner import credits, menu, woods
 from openglcontext_hill_runner.chase import CAMERA_BACK, CAMERA_UP
+from openglcontext_hill_runner.groundcover import Cover
 from openglcontext_hill_runner.hud import RunHud
 from openglcontext_hill_runner.landscape import Landscape
 from openglcontext_hill_runner.look import make_look
 from openglcontext_hill_runner.runner import MAX_SPEED
-from openglcontext_hill_runner.scenery import HillField
 from openglcontext_hill_runner.session import Frame, Session
 from openglcontext_hill_runner.sound import Sounds
 from openglcontext_hill_runner.tiles import HillTiles
@@ -50,28 +49,11 @@ CAMERA_PULL_BACK = 0.08
 #: The sun's direction: from behind the runner and a little to the left, so shadows fall ahead
 #: along the trails, and a coin's shadow lies on its own trail.
 SUN = (-0.18, -0.75, -0.62)
-#: Cover stays this far from the middle of the nearest path, which keeps it off the gaps too.
-TRAIL_CLEAR = 0.55
-#: The whole control scheme: each key and the method of the window that answers it.
+#: The game's keys, each with the method of the window that answers it.
 CONTROLS = {'<left>': '_hop_left', '<right>': '_hop_right', '<up>': '_jump',
             '<down>': '_slide', '<escape>': '_pause'}
 SKY = [(0.26, 0.48, 0.84), (0.55, 0.74, 0.94), (0.84, 0.90, 0.93)]
 HAZE = (0.80, 0.87, 0.92)
-
-
-def _in_the_sun(x: Any, z: Any) -> Any:  # noqa: ARG001 the engine asks for a value at (x, z)
-    """How much sun reaches the cover: all of it, for each point."""
-    return np.ones_like(np.asarray(x, dtype=float))
-
-
-def _cover_where(land: Landscape) -> Any:
-    """How much ground cover grows at ``(x, z)``: none on the trails and the gaps between them,
-    and as much beside them as the country has."""
-    def weight(x: Any, z: Any) -> Any:
-        x, d = np.asarray(x, dtype=float), -np.asarray(z, dtype=float)
-        clear = np.clip((land.trail_gap(x, d) - TRAIL_CLEAR) / 0.4, 0.0, 1.0)
-        return clear * np.minimum(1.0, land.cover_density(x, d))
-    return weight
 
 
 class RunnerContext(Context):
@@ -79,7 +61,11 @@ class RunnerContext(Context):
 
     windowSystemName = 'glfw'
     #: No free-fly: the chase camera is all that moves the view.
-    contextDefinition = ContextDefinition(navigation=None)
+    #: The title names the window and the pictures F2 saves (``Hill-Runner-0001.png``).
+    #: Shadows are asked for outright, with a fixed three cascades so the runner's and the
+    #: logs' shadows keep their detail whatever the frame rate.
+    contextDefinition = ContextDefinition(navigation=None, title='Hill Runner', shadows=True,
+                                          shadowCascades=3)
 
     #: Set by ``run.main`` from the command line.
     seed = 1
@@ -87,6 +73,9 @@ class RunnerContext(Context):
     sound = True
     photos = True
     forest = True
+
+    #: The game opens on its own screen; Alt+F brings up the engine's developer overlay.
+    debugOverlayStartsVisible = False
 
     # -- building ----------------------------------------------------------
     def OnInit(self) -> None:
@@ -99,7 +88,7 @@ class RunnerContext(Context):
         self.addHUDLayer(self.hud.layer)
         self.treasure = TreasureField(self.look)
         self.woods: woods.Woods | None = None
-        self.cover: GroundCover | None = None
+        self.cover: Cover | None = None
         self.camera = FollowCamera(self.platform, offset=(0.0, CAMERA_UP, CAMERA_BACK),
                                    pull_back=CAMERA_PULL_BACK, pull_back_speed=MAX_SPEED)
         self.platform.setFrustum(fieldOfView=FOV, near=0.3, far=REACH + 150.0)
@@ -121,12 +110,10 @@ class RunnerContext(Context):
             self.woods = woods.Woods(woods.species(art), land)
         else:
             self.woods.relocate(land)
-        ground = HillField(land)
         if self.cover is None:
-            self.cover = GroundCover(ground, read_cover_manifest(art), mask=_cover_where(land),
-                                     shade=_in_the_sun, background=True)
+            self.cover = Cover(art, land)
         else:
-            self.cover.relocate(ground, mask=_cover_where(land), shade=_in_the_sun)
+            self.cover.relocate(land)
 
     def _build_runner_node(self) -> None:
         """The runner: placed, tipped to the slope, leaned into hops, turned to face down the hill."""
@@ -157,9 +144,9 @@ class RunnerContext(Context):
         self.sg.children = [
             Background(skyColor=SKY, skyAngle=[1.0, 1.5], groundColor=[HAZE]),
             Fog(color=HAZE, visibilityRange=REACH * 1.15),
-            DirectionalLight(direction=SUN, color=(1.0, 0.96, 0.88), intensity=2.4),
+            DirectionalLight(direction=SUN, color=(1.0, 0.96, 0.88), intensity=2.4, shadows=True),
             self.terrain, self.treasure, self.runner_node,
-            *[node for node in (self.woods, self.cover) if node is not None],
+            *([self.woods, *self.cover.nodes] if self.woods and self.cover else []),
         ]
         self.mark('run-started', seed=seed, demo=bool(self.demo))
 
@@ -185,17 +172,13 @@ class RunnerContext(Context):
 
         After this the scatter runs on the cover's own worker as the runner moves.
         """
-        if self.cover is None:
-            return
-        eye = self._eye()
-        self.cover.apply_near(self.cover.compute_near(float(eye[0]), float(eye[2])))
-        self.cover.apply_far(self.cover.compute_far(float(eye[0]), float(eye[2])))
-        self.cover.update(eye)
+        if self.cover is not None:
+            self.cover.fill(self._eye())
 
     def _viewport_height(self) -> float:
         return float(max(1, self.getViewPort()[1]))
 
-    # -- commands: the whole control scheme --------------------------------
+    # -- commands ----------------------------------------------------------
     def _hop_left(self, event: Any) -> None:  # noqa: ARG002 OpenGLContext key-event callback signature
         self.session.game.runner.hop(-1)
 
@@ -212,7 +195,8 @@ class RunnerContext(Context):
         if not self.overlays.visible:
             self.pushOverlay(menu.pause_panel(
                 on_resume=self._resume, on_restart=self._restart,
-                on_settings=self._settings, on_credits=self._credits, on_quit=self.OnQuit))
+                on_settings=self._settings, on_credits=self._credits, on_quit=self.OnQuit,
+                on_demo=self._demo, demo=self.session.demo))
 
     def _credits(self) -> None:
         self.pushOverlay(dialogs.notice(
@@ -223,6 +207,12 @@ class RunnerContext(Context):
 
     def _resume(self) -> None:
         self._last = systemTime()
+
+    def _demo(self) -> None:
+        """Hand the run to the pilot, or take it back, and carry on."""
+        self.session.demo = not self.session.demo
+        self.mark('demo', playing=self.session.demo)
+        self._resume()
 
     def _restart(self) -> None:
         self.seed += 1

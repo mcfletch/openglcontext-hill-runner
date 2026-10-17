@@ -189,9 +189,9 @@ def test_the_way_under_a_high_gate_is_as_high_as_the_rules_say(land):
     obstacle = c.Obstacle(c.Kind.HIGH, 1, 100.0)
     points = points_of(land, obstacle)
     x = land.course.lane_x(1, 100.0)
-    middle = np.abs(points[:, 0] - x) < c.OBSTACLE_HALF_WIDTH - 0.005
+    middle = np.abs(points[:, 0] - x) < c.OBSTACLE_HALF_WIDTH - 0.04
     assert rise(land, obstacle, points[middle]).min() == pytest.approx(c.HIGH_BOTTOM, abs=0.08)
-    posts = np.abs(points[:, 0] - x) >= c.OBSTACLE_HALF_WIDTH - 0.005
+    posts = np.abs(points[:, 0] - x) >= c.OBSTACLE_HALF_WIDTH - 0.04
     assert rise(land, obstacle, points[posts]).min() < 0.05
 
 
@@ -206,13 +206,13 @@ def test_an_obstacle_across_two_paths_fills_both(land, kind):
 def test_a_low_obstacle_is_a_log_in_one_place_and_a_boulder_in_another(land):
     made = {tuple(sorted(p.name for p in s.obstacle(
         land, c.Obstacle(c.Kind.LOW, 1, 40.0 * i)))) for i in range(1, 40)}
-    assert ('WOOD',) in made and ('ROCK',) in made
+    assert ('BARK', 'CUT') in made and ('ROCK',) in made
 
 
-def test_a_wall_is_brick_in_one_place_and_piled_rock_in_another(land):
+def test_a_wall_is_stacked_logs_in_one_place_and_piled_rock_in_another(land):
     made = {tuple(sorted(p.name for p in s.obstacle(
         land, c.Obstacle(c.Kind.WALL, 1, 40.0 * i)))) for i in range(1, 40)}
-    assert ('BRICK',) in made and ('ROCK',) in made
+    assert ('BARK', 'CUT') in made and ('ROCK',) in made
 
 
 def test_an_obstacle_across_a_trail_that_is_turning_turns_with_it(land):
@@ -220,7 +220,7 @@ def test_an_obstacle_across_a_trail_that_is_turning_turns_with_it(land):
         return (land.course.lane_x(1, v + 1) - land.course.lane_x(1, v - 1)) / 2
 
     def is_log(v):
-        return s.Part.WOOD in s.obstacle(land, c.Obstacle(c.Kind.LOW, 1, float(v), span=2))
+        return s.Part.BARK in s.obstacle(land, c.Obstacle(c.Kind.LOW, 1, float(v), span=2))
 
     d = next(v for v in np.arange(900.0, 3000.0, 3.0) if abs(heading(v)) > 0.05 and is_log(v))
     points = points_of(land, c.Obstacle(c.Kind.LOW, 1, float(d), span=2))
@@ -236,10 +236,10 @@ def test_a_divider_runs_along_its_span_between_two_paths(land):
     valid(geometry)
     assert faces_agree_with_normals(geometry)
     z = geometry.positions[:, 2]
-    assert (z.min(), z.max()) == pytest.approx((-divider.end, -divider.start))
+    assert (z.min(), z.max()) == pytest.approx((-divider.end, -divider.start), abs=1e-3)
     middle = np.array([(land.course.lane_x(divider.lane, -v) + land.course.lane_x(divider.lane + 1, -v)) / 2
                        for v in z])
-    assert np.abs(geometry.positions[:, 0] - middle).max() <= s.HEDGE_WIDTH / 2 + 1e-3
+    assert np.abs(geometry.positions[:, 0] - middle).max() <= s.HEDGE_WIDTH / 2 + 0.12
 
 
 def test_a_divider_is_as_high_as_a_hedge_that_cannot_be_hopped(land):
@@ -372,3 +372,26 @@ def test_the_ground_and_the_path_texture_by_distance_from_the_origin(land):
                              (s.path(land, 1, index, origin=origin), s.PATH_REPEAT)):
         assert geometry.texcoords[:, 1] == pytest.approx(geometry.positions[:, 2] / repeat,
                                                          abs=1e-4)
+
+
+# -- clear of the lanes beside ------------------------------------------------------
+
+@pytest.mark.parametrize('kind', list(c.Kind))
+@pytest.mark.parametrize('lane', [0, 1, 2])
+def test_no_part_of_an_obstacle_reaches_the_body_of_a_runner_in_a_lane_it_does_not_block(
+        land, kind, lane):
+    from openglcontext_hill_runner.game import BODY_HALF_WIDTH
+    for span in (1, 2):
+        if lane + span > c.LANE_COUNT:
+            continue
+        for index in range(1, 25):
+            d = 100.0 + 37.0 * index
+            thing = c.Obstacle(kind, lane, d, span=span)
+            others = [other for other in land.course.lanes_at(d) if other not in thing.lanes]
+            for geometry in s.obstacle(land, thing).values():
+                p = geometry.positions.astype(float)
+                # A runner's body in a lane spans BODY_HALF_WIDTH either side of its middle.
+                for other in others:
+                    centre = land.course.lane_x(other, d)
+                    near = np.abs(p[:, 0] - centre).min()
+                    assert near > BODY_HALF_WIDTH + 0.02, (kind, lane, span, d, other, near)

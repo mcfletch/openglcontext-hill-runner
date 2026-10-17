@@ -23,17 +23,39 @@ def buttons(panel):
 def actions():
     calls = []
     return calls, {name: (lambda name=name: calls.append(name))
-                   for name in ('resume', 'restart', 'settings', 'credits', 'quit')}
+                   for name in ('resume', 'restart', 'settings', 'credits', 'quit', 'demo')}
 
 
-def test_the_pause_screen_offers_resume_restart_settings_credits_and_quit(actions):
+def test_the_pause_screen_offers_resume_restart_demo_settings_credits_and_quit(actions):
     calls, handlers = actions
     panel = menu.pause_panel(**{'on_' + k: v for k, v in handlers.items()})
     offered = buttons(panel)
-    assert set(offered) == {'resume', 'restart', 'settings', 'credits', 'quit'}
+    assert set(offered) == {'resume', 'restart', 'demo', 'settings', 'credits', 'quit'}
     for button in offered.values():
         button.on_activate(button)
-    assert sorted(calls) == ['credits', 'quit', 'restart', 'resume', 'settings']
+    assert sorted(calls) == ['credits', 'demo', 'quit', 'restart', 'resume', 'settings']
+
+
+def test_without_a_demo_to_start_the_pause_screen_has_no_demo_button(actions):
+    _, handlers = actions
+    del handlers['demo']
+    assert 'demo' not in buttons(menu.pause_panel(**{'on_' + k: v for k, v in handlers.items()}))
+
+
+def test_the_demo_button_says_demo_to_hand_the_run_over_and_play_to_take_it_back(actions):
+    _, handlers = actions
+    handlers = {'on_' + k: v for k, v in handlers.items()}
+    assert buttons(menu.pause_panel(**handlers))['demo'].text == 'Demo'
+    assert buttons(menu.pause_panel(demo=True, **handlers))['demo'].text == 'Play'
+
+
+def test_choosing_the_demo_does_not_also_resume_by_the_panels_own_close(actions):
+    calls, handlers = actions
+    panel = menu.pause_panel(**{'on_' + k: v for k, v in handlers.items()})
+    button = buttons(panel)['demo']
+    button.on_activate(button)
+    panel.on_close(panel)
+    assert calls == ['demo']
 
 
 def test_escape_on_the_pause_screen_resumes(actions):

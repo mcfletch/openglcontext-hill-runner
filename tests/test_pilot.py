@@ -65,3 +65,12 @@ def test_the_pilot_hops_for_walls_and_jumps_and_slides():
         pilot.drive()
         heard.update(game.advance(FRAME))
     assert {Event.HOP, Event.JUMP, Event.SLIDE} <= heard
+
+
+@pytest.mark.parametrize('branch', [None, True, False])
+@pytest.mark.parametrize('seed', [101, 202, 303, 404])
+def test_the_pilot_runs_on_for_thirty_kilometres_without_a_crash(seed, branch):
+    """The menu's Demo hands the run to the pilot to play for as long as it is left."""
+    game = drive(seed, 30_000, branch)
+    assert game.state is g.State.RUNNING, 'crashed into %s at %.1f m' % (
+        game.crashed_into, game.runner.distance)

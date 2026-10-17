@@ -62,6 +62,18 @@ class Session:
         self._last_x = self.game.runner.x
 
     @property
+    def demo(self) -> bool:
+        """Whether the pilot is playing. Set it to hand the run to the pilot or take it back."""
+        return self.pilot is not None
+
+    @demo.setter
+    def demo(self, playing: bool) -> None:
+        if playing and self.pilot is None:
+            self.pilot = Pilot(self.game)
+        elif not playing:
+            self.pilot = None
+
+    @property
     def over(self) -> bool:
         """Whether the fall has been on screen long enough for the end-of-run screen."""
         return self._crashed_for >= GAME_OVER_DELAY

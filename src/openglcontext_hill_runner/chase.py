@@ -16,7 +16,7 @@ HEADING_AHEAD = 6.0
 #: The camera stands this far behind the point it looks at along the runner's path, and this
 #: far above it, in metres: above head height, with the runner's feet at the bottom of the frame.
 CAMERA_BACK = 5.1
-CAMERA_UP = 1.85
+CAMERA_UP = 2.5
 
 
 class Chase:

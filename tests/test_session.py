@@ -137,3 +137,28 @@ def test_a_long_gap_between_frames_is_run_as_a_short_one():
     frame = session.step(5.0)
     assert frame.dt == MAX_FRAME
     assert session.game.runner.distance == pytest.approx(r.START_SPEED * MAX_FRAME, rel=0.05)
+
+
+def test_the_pilot_can_be_handed_the_run_and_give_it_back():
+    session = Session(c.Course(2))
+    assert session.demo is False and session.pilot is None
+    session.demo = True
+    assert session.demo is True and session.pilot is not None
+    pilot = session.pilot
+    session.demo = True
+    assert session.pilot is pilot                       # asking again does not start another
+    for _ in range(600):
+        session.step(1 / 60)
+    assert session.game.state.name == 'RUNNING' and session.game.runner.distance > 50.0
+    session.demo = False
+    assert session.demo is False and session.pilot is None
+
+
+def test_a_run_the_pilot_took_over_part_way_goes_on_without_a_crash():
+    session = Session(c.Course(4))
+    for _ in range(300):
+        session.step(1 / 60)
+    session.demo = True
+    while session.game.runner.distance < 3000.0 and session.game.state.name == 'RUNNING':
+        session.step(1 / 60)
+    assert session.game.state.name == 'RUNNING'

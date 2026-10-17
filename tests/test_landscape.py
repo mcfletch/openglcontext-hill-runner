@@ -169,7 +169,10 @@ def test_the_far_side_of_a_fork_is_the_countrys_own_not_the_branchs(land):
         land, land.course.lane_x(1, before), before)
 
 
-def test_the_land_has_no_step_where_a_forks_paths_begin_or_end(land):
+def test_the_land_has_no_step_where_a_forks_paths_begin_or_end(land, monkeypatch):
+    # The faces scraped into bare rock have steps of their own; it is the land under them
+    # that must not step where a fork begins.
+    monkeypatch.setattr(ls.Landscape, '_bare_rock', lambda self, x, d, gap, w: np.zeros_like(x))
     for fork in land.course.forks_between(0.0, 9000.0):
         for edge in (fork.start, fork.end):
             d = np.arange(edge - 4.0, edge + 4.0, 0.05)
@@ -195,3 +198,49 @@ def test_a_run_of_a_day_has_countries_and_forks_all_the_way():
     assert world.course.forks_between(far, far + 3000.0)
     d = np.array([far, far + 100.0])
     assert np.allclose(world.weights(np.zeros(2), d).sum(axis=0), 1.0)
+
+
+# -- bare rock ------------------------------------------------------------------------
+
+def rock_country(land, margin=60.0):
+    zone = next(z for z in land.zones if z.biome is ls.Biome.ROCKS and z.start > 300)
+    return zone.start + zone.length / 2
+
+
+def test_rock_country_stands_proud_of_the_land_it_would_be_without_rock(land, monkeypatch):
+    d = np.linspace(rock_country(land) - 40, rock_country(land) + 40, 200)
+    x = land.course.lane_x(1, d[0]) + 12.0 + 0.0 * d
+    with_rock = land.height(x, d)
+    monkeypatch.setattr(ls.Landscape, '_bare_rock', lambda self, x, d, gap, w: np.zeros_like(x))
+    without = land.height(x, d)
+    assert (with_rock - without).min() >= 0.0
+    assert (with_rock - without).max() > 0.2
+
+
+def test_the_rock_is_scraped_into_faces_with_steps_between(land, monkeypatch):
+    d = np.arange(rock_country(land) - 20, rock_country(land) + 20, 0.05)
+    x = np.full_like(d, land.course.lane_x(1, d[0]) + 14.0)
+    rise = land.height(x, d)
+    monkeypatch.setattr(ls.Landscape, '_bare_rock', lambda self, x, d, gap, w: np.zeros_like(x))
+    bare = land.height(x, d)
+    carved = rise - bare
+    assert (np.abs(np.diff(carved)) > 0.05).sum() > 3             # a step at the edge of a face
+    assert (np.abs(np.diff(carved)) < 0.02).mean() > 0.7          # and flat between them
+
+
+def test_the_trails_and_the_strip_beside_them_keep_their_smooth_ground(land, monkeypatch):
+    d = np.linspace(rock_country(land) - 30, rock_country(land) + 30, 120)
+    for offset in (0.0, 0.3, 0.9):
+        x = np.array([land.course.lane_x(1, v) for v in d]) + offset
+        with_rock = land.height(x, d)
+        monkeypatch.setattr(ls.Landscape, '_bare_rock', lambda self, x, d, gap, w: np.zeros_like(x))
+        assert with_rock == pytest.approx(land.height(x, d), abs=1e-9)
+        monkeypatch.undo()
+
+
+def test_there_is_no_rock_outside_rock_country(land):
+    zone = next(z for z in land.zones if z.biome is ls.Biome.MEADOW and z.start > 300)
+    d = np.linspace(zone.start + 60, zone.start + zone.length - 60, 100)
+    x = land.course.lane_x(1, d[0]) + 12.0 + 0.0 * d
+    gap = land.trail_gap(x, d)
+    assert not land._bare_rock(x, d, gap, land.weights(x, d)).any()

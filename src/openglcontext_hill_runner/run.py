@@ -8,11 +8,14 @@ from typing import Any
 os.environ.setdefault("OPENGLCONTEXT_RENDERER", "pbr")
 os.environ.setdefault("OPENGLCONTEXT_IBL", "full")
 
+from OpenGLContext.contentpacks.application import ask_on_console
+from OpenGLContext.loaders import cc0
+
 from openglcontext_hill_runner.app import RunnerContext
 
 CONTROLS = """\
 Hill runner: left and right hop between the paths, up jumps, down slides.
-Escape opens the menu.
+Escape opens the menu. F2 saves a screenshot. Alt+F shows the developer overlay.
 """
 
 
@@ -41,6 +44,10 @@ def main(argv: Any = None) -> None:
     RunnerContext.photos = not args.no_photos
     RunnerContext.forest = not args.no_forest
     print(CONTROLS)
+    if RunnerContext.photos:
+        # The photographs come from the engine's texture pack where it is offered, with a
+        # question first; without it they are fetched from ambientCG as they are first used.
+        cc0.ensure_pack(consent=ask_on_console())
     if args.size:
         RunnerContext.ContextMainLoop(size=tuple(args.size))
     else:

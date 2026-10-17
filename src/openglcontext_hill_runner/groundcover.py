@@ -1,0 +1,98 @@
+"""The hill's ground cover: grass to the edge of the trails, and the plants that grow with it.
+
+The forest demo's art holds grasses, ferns, nettles, flowers and shrubs. They are drawn as two
+nodes because the countries want them in different proportions: a meadow is grass with few
+ferns, a forest the other way about. The grass is grown taller than the forest demo draws it,
+so that near the trail it reads as grass seen from a runner's height and not as a lawn.
+"""
+from typing import Any
+
+import numpy as np
+from OpenGLContext.scenegraph.vegetation.cover import CoverSpecies, GroundCover, read_cover_manifest
+
+from openglcontext_hill_runner.landscape import Landscape
+from openglcontext_hill_runner.scenery import HillField
+
+#: How many times taller the grass grows than the forest demo's art draws it.
+TALL = 2.2
+#: Metres from the middle of a trail inside which the grass does not grow, and the width of the
+#: band over which it thickens to full; the same for the other plants. A trail is 0.5 m wide.
+GRASS_CLEAR = (0.32, 0.25)
+PLANTS_CLEAR = (0.55, 0.4)
+
+
+def split(species: list[CoverSpecies]) -> tuple[list[CoverSpecies], list[CoverSpecies]]:
+    """``species`` as the grasses, grown :data:`TALL`, and the plants that are not grass."""
+    grasses = [s.varied(height=s.height * TALL) for s in species if s.name.startswith('grass')]
+    return grasses, [s for s in species if not s.name.startswith('grass')]
+
+
+def _weight(land: Landscape, density: Any, clear: tuple[float, float]) -> Any:
+    """How much grows at ``(x, z)``: nothing near a trail, thickening to the country's density."""
+    start, band = clear
+
+    def weight(x: Any, z: Any) -> Any:
+        x, d = np.asarray(x, dtype=float), -np.asarray(z, dtype=float)
+        free = np.clip((land.trail_gap(x, d) - start) / band, 0.0, 1.0)
+        return free * np.minimum(1.0, density(x, d))
+    return weight
+
+
+def grass_where(land: Landscape) -> Any:
+    """How much grass grows at ``(x, z)``, from 0 to 1."""
+    return _weight(land, land.grass_density, GRASS_CLEAR)
+
+
+def plants_where(land: Landscape) -> Any:
+    """How much of the ferns, nettles, flowers and shrubs grows at ``(x, z)``, from 0 to 1."""
+    return _weight(land, land.cover_density, PLANTS_CLEAR)
+
+
+def _in_the_sun(x: Any, z: Any) -> Any:  # noqa: ARG001 the engine asks for a value at (x, z)
+    """How much sun reaches the cover: all of it, for each point."""
+    return np.ones_like(np.asarray(x, dtype=float))
+
+
+class Cover:
+    """The grass and the other plants of one hill, scattered about the camera on a worker."""
+
+    def __init__(self, art: str, land: Landscape) -> None:
+        grasses, plants = split(read_cover_manifest(art))
+        ground = HillField(land)
+        self.grass = GroundCover(ground, grasses, mask=grass_where(land), shade=_in_the_sun,
+                                 background=True)
+        self.plants = GroundCover(ground, plants, mask=plants_where(land), shade=_in_the_sun,
+                                  background=True)
+
+    @property
+    def nodes(self) -> list[GroundCover]:
+        """The nodes to put in the scene."""
+        return [self.grass, self.plants]
+
+    def relocate(self, land: Landscape) -> None:
+        """Grow the same cover on another hill, keeping what the nodes hold on the GPU."""
+        ground = HillField(land)
+        self.grass.relocate(ground, mask=grass_where(land), shade=_in_the_sun)
+        self.plants.relocate(ground, mask=plants_where(land), shade=_in_the_sun)
+
+    def fill(self, eye: Any) -> None:
+        """Scatter the cover about ``eye`` now, so the first frame has it."""
+        x, z = float(eye[0]), float(eye[2])
+        for node in self.nodes:
+            node.apply_near(node.compute_near(x, z))
+            node.apply_far(node.compute_far(x, z))
+            node.update(eye)
+
+    def update(self, eye: Any) -> None:
+        """Keep the cover about the camera at ``eye``; call once a frame."""
+        for node in self.nodes:
+            node.update(eye)
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """Wait for the workers to finish a scatter; whether both did in time."""
+        return all([node.wait(timeout) for node in self.nodes])
+
+    def shutdown(self) -> None:
+        """Stop the workers."""
+        for node in self.nodes:
+            node.shutdown()

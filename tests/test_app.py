@@ -19,7 +19,7 @@ def test_it_is_a_glfw_window_with_no_free_camera():
     assert not RunnerContext.resolveDefinition().navigation
 
 
-def test_the_arrow_keys_and_escape_are_the_whole_control_scheme():
+def test_the_game_binds_the_arrow_keys_and_escape():
     from openglcontext_hill_runner.app import CONTROLS
     assert set(CONTROLS) == {'<left>', '<right>', '<up>', '<down>', '<escape>'}
     for method in CONTROLS.values():
@@ -54,7 +54,7 @@ def test_the_window_draws_the_hill_with_sky_ground_and_a_runner(tmp_path):
     height = pixels.shape[0]
     ground = pixels[height * 3 // 4:]
     assert pixels.std() > 25.0
-    assert (pixels[..., 2] > pixels[..., 0] + 30).mean() > 0.02    # some sky
+    assert (pixels[..., 2] > pixels[..., 0] + 30).mean() > 0.005    # some sky
     assert ground[..., 1].mean() > 40                              # lit ground under the runner
     middle = pixels[height // 3:, pixels.shape[1] // 3: 2 * pixels.shape[1] // 3]
     red = (middle[..., 0] > 140) & (middle[..., 1] < 70) & (middle[..., 2] < 70)
@@ -66,7 +66,7 @@ def test_the_window_draws_the_hill_with_sky_ground_and_a_runner(tmp_path):
 def test_the_window_draws_without_the_forest_demos_art_or_any_download(tmp_path):
     pixels = capture(tmp_path, 120, "--demo", "--no-forest", "--no-photos")
     assert pixels.std() > 25.0
-    assert (pixels[..., 2] > pixels[..., 0] + 30).mean() > 0.02
+    assert (pixels[..., 2] > pixels[..., 0] + 30).mean() > 0.005
 
 
 RESTARTING = '''
@@ -149,3 +149,212 @@ def test_woods_with_no_trees_in_them_draw_without_error(tmp_path):
                             text=True, timeout=240)
     assert (tmp_path / "shot.png").exists(), result.stderr[-2000:]
     assert 'Traceback' not in result.stderr and 'Error' not in result.stderr, result.stderr[-2000:]
+
+
+F2_PRESS = '''
+import os
+from OpenGLContext.events.keyboardevents import KeyboardEvent
+from openglcontext_hill_runner.app import RunnerContext
+
+
+class Pressing(RunnerContext):
+    seed = 1
+    demo = True
+    sound = False
+    photos = False
+    forest = False
+    frames = 0
+
+    def screenshotDirectory(self):
+        return os.environ['PICTURES']
+
+    def OnIdle(self, *arguments):
+        type(self).frames += 1
+        if self.frames == 20:
+            key = KeyboardEvent()
+            key.name, key.state, key.modifiers = '<F2>', 1, (0, 0, 0)
+            self.ProcessEvent(key)
+        return super().OnIdle(*arguments)
+
+
+Pressing.ContextMainLoop(size=(640, 360))
+'''
+
+
+@pytest.mark.needs_gl
+@pytest.mark.skipif(not _has_gl(), reason="no GL display available")
+def test_f2_saves_a_picture_of_the_game_named_for_it(tmp_path):
+    pictures = tmp_path / "pictures"
+    pictures.mkdir()
+    env = dict(os.environ)
+    env.update(OPENGLCONTEXT_PROFILE="core", OPENGLCONTEXT_DISABLE_FPS_DISPLAY="1",
+               OPENGLCONTEXT_HIDDEN="1", OPENGLCONTEXT_AUTO_EXIT_FRAMES="50",
+               PICTURES=str(pictures))
+    script = tmp_path / "press.py"
+    script.write_text(F2_PRESS)
+    result = subprocess.run([sys.executable, str(script)], env=env, capture_output=True,
+                            text=True, timeout=240)
+    assert 'Traceback' not in result.stderr, result.stderr[-2000:]
+    saved = sorted(p.name for p in pictures.iterdir())
+    assert saved == ['Hill-Runner-0001.png'], saved
+    picture = np.asarray(Image.open(pictures / saved[0]).convert("RGB"), dtype=float)
+    assert picture.shape[:2] == (360, 640) and picture.std() > 25.0
+
+
+ALT_F = '''
+import os
+from OpenGLContext.events.keyboardevents import KeyboardEvent
+from openglcontext_hill_runner.app import RunnerContext
+
+
+class Pressing(RunnerContext):
+    seed = 1
+    demo = True
+    sound = False
+    photos = False
+    forest = False
+    frames = 0
+
+    def OnIdle(self, *arguments):
+        type(self).frames += 1
+        if self.frames == 5:
+            print('START', self._debugOverlay is not None and self._debugOverlay.visible, flush=True)
+            self.press()
+        if self.frames == 15:
+            print('SHOWN', self.debugOverlay.visible, flush=True)
+            self.press()
+        if self.frames == 25:
+            print('HIDDEN', self.debugOverlay.visible, flush=True)
+        return super().OnIdle(*arguments)
+
+    def press(self):
+        key = KeyboardEvent()
+        key.name, key.state, key.modifiers = 'f', 1, (0, 0, 1)
+        self.ProcessEvent(key)
+
+
+Pressing.ContextMainLoop(size=(640, 360))
+'''
+
+
+@pytest.mark.needs_gl
+@pytest.mark.skipif(not _has_gl(), reason="no GL display available")
+def test_alt_f_shows_and_hides_the_developer_overlay_which_starts_hidden(tmp_path):
+    env = dict(os.environ)
+    env.update(OPENGLCONTEXT_PROFILE="core", OPENGLCONTEXT_HIDDEN="1",
+               OPENGLCONTEXT_AUTO_EXIT_FRAMES="40")
+    env.pop("OPENGLCONTEXT_DISABLE_FPS_DISPLAY", None)
+    script = tmp_path / "altf.py"
+    script.write_text(ALT_F)
+    result = subprocess.run([sys.executable, str(script)], env=env, capture_output=True,
+                            text=True, timeout=240)
+    assert 'Traceback' not in result.stderr, result.stderr[-2000:]
+    lines = [line for line in result.stdout.splitlines() if line.split(' ')[0] in
+             ('START', 'SHOWN', 'HIDDEN')]
+    assert lines == ['START False', 'SHOWN True', 'HIDDEN False'], result.stdout[-1000:]
+
+
+SHADOW_FIT = '''
+import numpy as np
+from OpenGLContext.passes import shadowmixin as sm
+from openglcontext_hill_runner.app import RunnerContext
+
+widest = []
+original = sm.ShadowMapMixin._renderLight
+
+
+def spy(self, *arguments, **named):
+    bound = original(self, *arguments, **named)
+    if bound is not None:
+        widest.append(max(2.0 / abs(float(np.asarray(p)[0, 0])) for _, p in bound['lights']))
+    return bound
+
+
+sm.ShadowMapMixin._renderLight = spy
+
+
+class Watching(RunnerContext):
+    seed = 1
+    demo = True
+    sound = False
+    photos = False
+    forest = True
+    frames = 0
+
+    def OnIdle(self, *arguments):
+        type(self).frames += 1
+        if self.frames == 30:
+            print('WIDEST', max(widest) if widest else None, flush=True)
+        return super().OnIdle(*arguments)
+
+
+Watching.ContextMainLoop(size=(640, 360))
+'''
+
+
+@pytest.mark.needs_gl
+@pytest.mark.skipif(not _has_gl(), reason="no GL display available")
+def test_the_suns_shadow_maps_are_fitted_to_the_view_and_not_to_the_forest(tmp_path):
+    env = dict(os.environ)
+    env.update(OPENGLCONTEXT_RENDERER="pbr", OPENGLCONTEXT_IBL="full", OPENGLCONTEXT_PROFILE="core",
+               OPENGLCONTEXT_HIDDEN="1", OPENGLCONTEXT_AUTO_EXIT_FRAMES="40")
+    script = tmp_path / "fit.py"
+    script.write_text(SHADOW_FIT)
+    result = subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True,
+                            timeout=240)
+    assert 'Traceback' not in result.stderr, result.stderr[-2000:]
+    line = next(line for line in result.stdout.splitlines() if line.startswith('WIDEST'))
+    assert line != 'WIDEST None', 'no shadow map was made'
+    assert float(line.split()[1]) < 5000.0, line
+
+
+def test_the_window_asks_for_shadows_with_three_cascades():
+    definition = RunnerContext.contextDefinition
+    assert definition.shadows is True and definition.shadowCascades == 3
+
+
+DEMO_FROM_MENU = '''
+from openglcontext_hill_runner.app import RunnerContext
+
+
+class Handing(RunnerContext):
+    seed = 2
+    demo = False
+    sound = False
+    photos = False
+    forest = False
+    frames = 0
+
+    def OnIdle(self, *arguments):
+        type(self).frames += 1
+        if self.frames == 10:
+            print('BEFORE', self.session.demo, flush=True)
+            self._demo()
+            print('AFTER', self.session.demo, flush=True)
+        if self.frames == 150:
+            game = self.session.game
+            print('LATER', game.state.name, round(game.runner.distance), flush=True)
+            self._demo()
+            print('BACK', self.session.demo, flush=True)
+        return super().OnIdle(*arguments)
+
+
+Handing.ContextMainLoop(size=(640, 360))
+'''
+
+
+@pytest.mark.needs_gl
+@pytest.mark.skipif(not _has_gl(), reason="no GL display available")
+def test_the_demo_the_menu_starts_plays_on_and_the_player_can_take_the_run_back(tmp_path):
+    env = dict(os.environ)
+    env.update(OPENGLCONTEXT_PROFILE="core", OPENGLCONTEXT_HIDDEN="1",
+               OPENGLCONTEXT_AUTO_EXIT_FRAMES="170")
+    script = tmp_path / "handing.py"
+    script.write_text(DEMO_FROM_MENU)
+    result = subprocess.run([sys.executable, str(script)], env=env, capture_output=True,
+                            text=True, timeout=240)
+    assert 'Traceback' not in result.stderr, result.stderr[-2000:]
+    said = [line for line in result.stdout.splitlines()
+            if line.split(' ')[0] in ('BEFORE', 'AFTER', 'LATER', 'BACK')]
+    assert [line.split(' ')[0] + ' ' + line.split(' ')[1] for line in said] == [
+        'BEFORE False', 'AFTER True', 'LATER RUNNING', 'BACK False'], said

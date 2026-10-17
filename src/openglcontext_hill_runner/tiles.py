@@ -115,7 +115,7 @@ class HillTiles:
             for part, geometry in s.obstacle(land, obstacle, origin).items():
                 by_part.setdefault(part, []).append(geometry)
         if chunk.dividers:
-            by_part.setdefault(s.Part.STONE, []).extend(s.divider(land, h, origin) for h in chunk.dividers)
+            by_part.setdefault(s.Part.ROCK, []).extend(s.divider(land, h, origin) for h in chunk.dividers)
         if self.trees:
             foliage, trunks = s.trees(land, chunk, origin)
             if foliage is not None and trunks is not None:

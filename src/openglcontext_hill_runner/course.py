@@ -91,7 +91,7 @@ def smooth(t: Any) -> np.ndarray:
 #: Each kind of randomness draws from a stream of its own, so that two of them never share
 #: numbers however their other keys happen to fall.
 STREAMS = {name: number for number, name in enumerate(
-    ('chunk', 'forks', 'wander', 'zones', 'branch', 'obstacle', 'trees', 'rocks', 'woods'), 1)}
+    ('chunk', 'forks', 'wander', 'zones', 'branch', 'obstacle', 'trees', 'rocks', 'woods', 'divider'), 1)}
 
 
 def stream(seed: int, name: str, *index: int) -> np.random.Generator:

@@ -5,14 +5,11 @@ each texture is uploaded to the GPU once however many tiles wear it.
 """
 import math
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 from OpenGLContext.loaders import cc0
 from OpenGLContext.scenegraph import surfaces as sf
-from OpenGLContext.scenegraph.imagedata import ImageDataTexture
 from OpenGLContext.scenegraph.physicalmaterial import PhysicalMaterial
-from PIL import Image
 
 from openglcontext_hill_runner.landscape import Layer
 from openglcontext_hill_runner.scenery import Part
@@ -107,33 +104,37 @@ def coin_maps(size: int = SIZE) -> sf.Maps:
     return sf.Maps(np.clip(base, 0.0, 1.0), rough, np.ones((size, size)), height)
 
 
-def _read(path: str, mode: str) -> Image.Image:
-    """The picture at ``path`` in ``mode``, with its file closed."""
-    with Image.open(path) as picture:
-        return picture.convert(mode)
+def bark_maps(size: int = SIZE) -> sf.Maps:
+    """Furrowed bark: deep ridges running up the picture, which is along the trunk."""
+    across = np.linspace(0.0, 1.0, size)[None, :]
+    wander = sf.fbm(size, 5, seed=91, octaves=3)
+    ridge = np.abs(np.sin(math.pi * (across * 9.0 + 1.2 * wander)))
+    grain = sf.fbm(size, 40, seed=92, octaves=3)
+    shade = np.clip(0.25 + 0.65 * ridge + 0.25 * grain, 0.0, 1.0)
+    base = _mix((0.075, 0.055, 0.04), (0.33, 0.25, 0.19), shade)
+    return sf.Maps(np.clip(base, 0.0, 1.0), np.clip(0.9 + 0.08 * grain, 0.0, 1.0),
+                   np.zeros((size, size)), np.clip(0.15 + 0.75 * ridge * (0.7 + 0.3 * grain), 0.0, 1.0))
 
 
-def photographic(name: str) -> PhysicalMaterial | None:
-    """A CC0 photographic material from ambientCG, or None where it cannot be had.
-
-    ``name`` is a key of :data:`OpenGLContext.loaders.cc0.CATALOG`. The first call
-    downloads and caches the maps in the per-user cache; later calls, and calls
-    with no network after that, read the cache.
-    """
-    maps = cc0.try_material(name)
-    if not maps or 'color' not in maps or 'normal' not in maps:
-        return None
-    settings: dict[str, Any] = dict(
-        baseTexture=ImageDataTexture(image=_read(maps['color'], 'RGB')),
-        normalTexture=ImageDataTexture(image=_read(maps['normal'], 'RGB')),
-        baseColor=(1.0, 1.0, 1.0), metallic=0.0, roughness=0.9)
-    if 'roughness' in maps:
-        rough = np.asarray(_read(maps['roughness'], 'L'))
-        packed = np.zeros(rough.shape + (3,), np.uint8)
-        packed[..., 1] = rough
-        settings.update(metallicRoughnessTexture=ImageDataTexture(
-            image=Image.fromarray(packed, 'RGB')), roughness=1.0)
-    return PhysicalMaterial(**settings)
+def end_grain_maps(size: int = SIZE) -> sf.Maps:
+    """The sawn end of a trunk: growth rings about the centre of the picture, a darker heart,
+    a rim of bark and a few cracks running out from the middle."""
+    axis = np.linspace(-1.0, 1.0, size)
+    x, y = np.meshgrid(axis, axis)
+    r = np.hypot(x, y)
+    theta = np.arctan2(y, x)
+    wander = sf.fbm(size, 4, seed=101, octaves=3)
+    ring = 0.5 + 0.5 * np.sin(2.0 * math.pi * (r * 11.0 + 0.9 * wander))
+    grain = sf.fbm(size, 48, seed=102, octaves=2)
+    wood = _mix((0.46, 0.32, 0.18), (0.70, 0.54, 0.34), np.clip(0.35 + 0.5 * ring + 0.3 * grain, 0, 1))
+    wood = wood * (0.78 + 0.22 * np.clip(r * 1.6, 0.0, 1.0))[..., None]
+    crack = (np.abs(np.sin(theta * 3.0 + 4.0 * wander)) < 0.035) & (r > 0.12) & (r < 0.9)
+    wood = np.where(crack[..., None], wood * 0.4, wood)
+    rim = (r > 0.9)[..., None]
+    base = np.where(rim, np.asarray((0.10, 0.07, 0.05)) * (0.7 + 0.6 * grain)[..., None], wood)
+    height = np.clip(0.55 + 0.1 * ring - 0.35 * crack - 0.3 * (r > 0.9), 0.0, 1.0)
+    return sf.Maps(np.clip(base, 0.0, 1.0), np.clip(0.75 + 0.15 * grain, 0.0, 1.0),
+                   np.zeros((size, size)), height)
 
 
 def sand_maps(size: int = SIZE) -> sf.Maps:
@@ -145,9 +146,11 @@ def sand_maps(size: int = SIZE) -> sf.Maps:
                    np.zeros((size, size)), np.clip(0.3 + 0.5 * ripple, 0.0, 1.0))
 
 
+#: The colour weathered timber has next to the living bark of the photograph.
+WEATHERED = (0.62, 0.56, 0.50)
 #: The CC0 photographs for each ground layer, by ambientCG name or id.
 PHOTOGRAPHS = {Layer.GRASS: 'grass', Layer.FOREST_FLOOR: 'forest_floor', Layer.ROCK: 'rock',
-               Layer.SAND: 'Ground080'}
+               Layer.SAND: 'sand'}
 
 
 def make_look(size: int = SIZE, photos: bool = False) -> Look:
@@ -164,22 +167,18 @@ def make_look(size: int = SIZE, photos: bool = False) -> Look:
     }
     ground = {}
     for layer, (maps, relief) in procedural.items():
-        ground[layer] = ((photographic(PHOTOGRAPHS[layer]) if photos else None)
+        ground[layer] = ((cc0.physical_material(PHOTOGRAPHS[layer]) if photos else None)
                          or sf.pbr_material(maps(), relief=relief, metallic=0.0))
-    dirt = photographic('dirt') if photos else None
+    dirt = cc0.physical_material('dirt') if photos else None
     return Look(
         ground=ground,
         path=dirt or sf.pbr_material(mottled(DIRT, size), relief=2.5, metallic=0.0),
         parts={
-            Part.WOOD: sf.pbr_material(sf.wood(size, colour=(0.46, 0.28, 0.14)), metallic=0.0),
-            Part.BRICK: sf.pbr_material(sf.brick(size, courses=8, bricks=4,
-                                                 colour=(0.42, 0.17, 0.10)), metallic=0.0),
-            Part.STONE: sf.pbr_material(sf.sandstone(size, colour=(0.62, 0.60, 0.55)),
-                                        metallic=0.0),
-            Part.ROCK: sf.pbr_material(sf.sandstone(size, colour=(0.30, 0.29, 0.27), seed=9),
-                                       metallic=0.0),
-            Part.BARK: sf.pbr_material(sf.wood(size, colour=(0.22, 0.13, 0.07), rings=14,
-                                               seed=17), metallic=0.0),
+            Part.ROCK: (photos and cc0.physical_material(PHOTOGRAPHS[Layer.ROCK])) or sf.pbr_material(
+                sf.sandstone(size, colour=(0.34, 0.33, 0.31), seed=9), relief=3.0, metallic=0.0),
+            Part.BARK: (photos and cc0.physical_material('bark', tint=WEATHERED)) or sf.pbr_material(
+                bark_maps(size), relief=3.0, metallic=0.0),
+            Part.CUT: sf.pbr_material(end_grain_maps(size), relief=1.5, metallic=0.0),
             Part.FOLIAGE: PhysicalMaterial(baseColor=(0.035, 0.20, 0.07), metallic=0.0,
                                            roughness=0.85),
         },
