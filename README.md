@@ -76,7 +76,7 @@ trail carries its runner onto the nearest path of it.
 | --- | --- |
 | The hill, one tile for each 72 m, made as the runner nears it | `GeneratedTiles`, `OpenGLContext.loaders.tiles3d.generated` |
 | The runner, with `Sprint_Loop`, `Jog_Fwd_Loop`, `Jump_Start`, `Jump_Loop`, `Slide` and `Death01` | `OpenGLContext.character.CharacterModel` |
-| Sun with cascaded shadow maps, PBR materials, fog | `DirectionalLight`, the PBR pass, `Fog` |
+| Sun with cascaded shadow maps fitted to `shadowDistance` and fading out at its end, PBR materials, fog | `DirectionalLight`, `ContextDefinition.shadowDistance`, the PBR pass, `Fog` |
 | Ground, trail, rock and bark photographs (CC0) | `OpenGLContext.loaders.cc0.physical_material`, with procedural `OpenGLContext.scenegraph.surfaces` as the fallback |
 | Rocks, logs, fence rails and dry-stone walls | `OpenGLContext.scenegraph.natural` (`stone`, `timber`, `rubble`) |
 | Rock country's ground: flat faces scraped into the land | `OpenGLContext.scenegraph.terrain.RockRelief` |

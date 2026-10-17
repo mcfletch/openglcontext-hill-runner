@@ -27,6 +27,7 @@ from OpenGLContext.scenegraph.basenodes import (
     sceneGraph,
 )
 from OpenGLContext.scenegraph.generatedtiles import GeneratedTiles
+from OpenGLContext.scenegraph.vegetation.field import NEAR_RADIUS
 from OpenGLContext.ui import dialogs, settings
 
 from openglcontext_hill_runner import atmosphere, canopy, credits, menu, woods
@@ -71,9 +72,12 @@ class RunnerContext(Context):
     #: Shadows are asked for outright, with a fixed three cascades so the runner's and the
     #: logs' shadows keep their detail whatever the frame rate. Frames wait for the display's
     #: refresh, which leaves the threads that scatter the cover and make the tiles their share
-    #: of the interpreter between frames.
+    #: of the interpreter between frames. Shadows are made as far as 0.85 of the radius the near
+    #: trees are drawn to and fade out over the last fifth of it, so a tree entering the set
+    #: starts with no shadow, and the cascades are fitted to the trees rather than the farthest log.
     contextDefinition = ContextDefinition(navigation=None, title='Hill Runner', shadows=True,
-                                          shadowCascades=3, vsync=True)
+                                          shadowCascades=3, shadowDistance=0.85 * NEAR_RADIUS,
+                                          vsync=True)
 
     #: Set by ``run.main`` from the command line.
     seed = 1

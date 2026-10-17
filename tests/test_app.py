@@ -308,6 +308,11 @@ def test_the_suns_shadow_maps_are_fitted_to_the_view_and_not_to_the_forest(tmp_p
     assert float(line.split()[1]) < 5000.0, line
 
 
+def test_shadows_end_inside_the_radius_the_near_trees_are_drawn_to():
+    from OpenGLContext.scenegraph.vegetation.field import NEAR_RADIUS
+    assert 0.5 * NEAR_RADIUS < RunnerContext.contextDefinition.shadowDistance < NEAR_RADIUS
+
+
 def test_the_window_asks_for_shadows_with_three_cascades():
     definition = RunnerContext.contextDefinition
     assert definition.shadows is True and definition.shadowCascades == 3
