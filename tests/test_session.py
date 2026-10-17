@@ -53,19 +53,32 @@ def test_the_run_is_over_a_moment_after_the_crash():
         heard += [s.name for s in session.step(FRAME).sounds]
         if session.game.state is g.State.CRASHED:
             break
-    assert session.game.damage == g.MAX_DAMAGE
-    assert heard.count('crash') == g.MAX_DAMAGE
+    assert session.game.hits == 1 and session.game.coins == 0
+    assert heard.count('crash') == 2
     assert not session.over
     for _ in range(round(GAME_OVER_DELAY / FRAME) + 2):
         session.step(FRAME)
     assert session.over
 
 
+def test_a_runner_with_coins_to_pay_for_it_runs_on_after_a_hit():
+    world = c.Course(1)
+    session = Session(world)
+    session.game.runner.distance = 0.0
+    session.game.coins = 250
+    world.chunk(0)
+    world._chunks[0] = c.Chunk(0, 0.0, (c.Obstacle(c.Kind.WALL, 1, 12.0),), (), ())
+    for _ in range(60 * 10):
+        session.step(FRAME)
+    assert session.game.state is g.State.RUNNING and session.game.coins == 150
+    assert not session.over
+
+
 def test_the_demo_pilot_runs_a_course_unaided():
     session = Session(c.Course(2), demo=True)
     for _ in range(60 * 30):
         session.step(FRAME)
-    assert session.game.damage == 0
+    assert session.game.hits == 0
     assert session.game.runner.distance > 200
     assert session.game.coins > 0
 
@@ -183,6 +196,7 @@ def test_the_pilot_does_nothing_while_the_runner_is_down():
 def test_a_hit_runner_stays_where_it_fell_in_the_picture_until_it_is_up():
     world = c.Course(1)
     session = Session(world)
+    session.game.coins = 250
     wall = c.Obstacle(c.Kind.WALL, 1, 12.0)
     world.chunk(0)
     world._chunks[0] = c.Chunk(0, 0.0, (wall,), (), ())

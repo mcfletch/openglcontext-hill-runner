@@ -448,14 +448,14 @@ class Damaged(RunnerContext):
     sound = False
     photos = False
     forest = False
-    damage = 0
+    owed = 0
 
     def OnInit(self):
         super().OnInit()
-        self.session.game.damage = type(self).damage
+        self.session.game.owed = type(self).owed
 
 
-Damaged.damage = int(__import__('sys').argv[1])
+Damaged.owed = int(__import__('sys').argv[1])
 Damaged.ContextMainLoop(size=(640, 360))
 '''
 
@@ -469,9 +469,9 @@ def edge_redness(pixels):
 
 @pytest.mark.needs_gl
 @pytest.mark.skipif(not _has_gl(), reason="no GL display available")
-def test_the_more_damage_the_redder_the_edges_of_the_picture(tmp_path):
+def test_the_edges_of_the_picture_are_red_while_a_continue_is_paid_for(tmp_path):
     redness = []
-    for damage in (0, 1, 2):
+    for damage in (0, 100):
         shots = tmp_path / str(damage)
         shots.mkdir()
         env = dict(os.environ)
@@ -486,7 +486,7 @@ def test_the_more_damage_the_redder_the_edges_of_the_picture(tmp_path):
         assert 'Traceback' not in result.stderr, result.stderr[-2000:]
         redness.append(edge_redness(np.asarray(Image.open(shots / "shot.png").convert("RGB"),
                                                dtype=float)))
-    assert redness[0] + 4.0 < redness[1] < redness[2] - 4.0, redness
+    assert redness[0] + 4.0 < redness[1], redness
 
 
 HAZE = '''
@@ -553,7 +553,7 @@ class Under(RunnerContext):
         if self.frames == 30:
             print('AIR', round(self._fog.visibilityRange), round(self._sun.intensity, 2),
                   round(float(renderoptions.definition(self).iblIntensity), 3),
-                  self.session.game.damage, flush=True)
+                  self.session.game.hits, flush=True)
         return super().OnIdle(*arguments)
 
 

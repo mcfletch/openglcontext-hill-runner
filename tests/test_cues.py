@@ -70,7 +70,7 @@ def test_every_pose_names_a_clip_the_figure_carries():
 @pytest.mark.parametrize('event, name', [
     (Event.JUMP, 'jump_grunt'), (Event.SLIDE, 'slide'), (Event.COIN, 'coin'),
     (Event.JEWEL, 'chime'), (Event.CRASH, 'crash'), (Event.HIT, 'crash'),
-    (Event.HEAL, 'chime'),
+    (Event.PAID, 'chime'),
 ])
 def test_what_happens_is_heard(event, name):
     assert [sound.name for sound in cues.sounds_for([event])] == [name]
@@ -82,7 +82,7 @@ def test_a_jewel_has_a_sound_of_its_own():
 
 def test_a_hit_is_softer_than_the_crash_that_ends_the_run_and_a_heal_is_softer_than_a_jewel():
     hit, crash = (cues.sounds_for([e])[0] for e in (Event.HIT, Event.CRASH))
-    heal, jewel = (cues.sounds_for([e])[0] for e in (Event.HEAL, Event.JEWEL))
+    heal, jewel = (cues.sounds_for([e])[0] for e in (Event.PAID, Event.JEWEL))
     assert hit.gain < crash.gain
     assert heal.gain < jewel.gain and heal.rate < jewel.rate
 

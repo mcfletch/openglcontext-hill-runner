@@ -24,15 +24,15 @@ oglc-hill-runner --no-forest --no-photos   # no use of the forest demo's art, no
 The three trails are 0.5 m wide with 0.2 m between them, so a hop is one big step. The runner speeds
 up from 10 to 24 m/s and cannot slow down on its own. A log, a boulder, a gate board or a wall is a
 hit; they stand across one or two trails and are a metre high or more. Coins hang at knee height and are
-worth 1. Jewels hang above a runner's reach and are worth 5: they need a jump. The HUD shows coins,
-score, hits and metres run.
+worth 1 coin. Jewels hang above a runner's reach and are worth 5 coins: they need a jump. The HUD shows
+coins, score, hits and metres run.
 
-### Damage
+### Hits and continues
 
-A hit knocks the runner down just short of the obstacle. It stays there for 1.3 s, rolling to its feet, with the keys doing nothing, and then runs on from 10 m/s: the speed gained is lost. Three hits end the run. The edges of the
-screen are shaded red in proportion to the hits taken (a third, two thirds, all of the shading) and
-flash at each new hit. Nothing hits the runner again for the next 15 m, so a row of obstacles is one hit.
-500 m run without a hit takes one hit away, and another 500 m after that takes the next.
+A hit knocks the runner down just short of the obstacle. It stays there for 1.3 s, rolling to its feet, with the keys doing nothing, and then runs on from 10 m/s: the speed gained is lost. Each hit costs a continue of 100 coins. The edges of the
+screen turn red and flash at the hit, and the coins flash red as they count down by 100 over the 1.3 s of the roll. When the 100 are paid the red clears and the runner
+runs on. A runner with fewer than 100 coins counts down to nothing with the continue still owing, and the run is over: it cannot be bought. The score is not spent.
+Nothing hits the runner again for the next 15 m, so a row of obstacles is one hit.
 
 ### The country
 
@@ -100,7 +100,7 @@ The rules have no GL and are tested without a window.
 | `course` | Paths, the slope, the wandering trail, forks, caves and their ceilings, obstacles (a crevice among them), coins, jewels and hedges; a chunk is a function of the seed and its index |
 | `landscape` | The countries, and the land, ground layers, tree, cover and rock densities of each |
 | `runner` | The body: speed, hopping, jumping, sliding |
-| `game` | Collisions, damage and healing, the fall and getting up, head against a ceiling, treasure, the end of a run |
+| `game` | Collisions, the fall and getting up, the continue bought with coins, head against a ceiling, treasure, the end of a run |
 | `atmosphere` | How dark and how hazy the air is at a distance: bright in the open, dark in a cave |
 | `pilot` | The autopilot; the test that every generated course can be run |
 | `cues` | Which clip plays, which sounds fire, when a foot lands |

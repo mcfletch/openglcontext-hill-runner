@@ -208,7 +208,7 @@ def play(game, until, command=None):
 def test_a_jump_under_a_low_ceiling_is_a_hit():
     game = g.Game(Under(2.6))
     game.runner.distance = 150.0
-    heard = play(game, lambda game: game.damage == 1, lambda game, frame: game.runner.jump())
+    heard = play(game, lambda game: game.hits == 1, lambda game, frame: game.runner.jump())
     assert Event.HIT in heard
     assert game.crashed_into is None and game.state is g.State.DOWN
 
@@ -217,12 +217,12 @@ def test_running_under_a_low_ceiling_is_safe_and_so_is_a_slide():
     game = g.Game(Under(2.6))
     game.runner.distance = 150.0
     play(game, lambda game: game.runner.distance > 300.0)
-    assert game.damage == 0
+    assert game.hits == 0
     game = g.Game(Under(2.6))
     game.runner.distance = 150.0
     play(game, lambda game: game.runner.distance > 300.0,
          lambda game, frame: game.runner.slide() if frame % 30 == 0 else None)
-    assert game.damage == 0
+    assert game.hits == 0
 
 
 def test_a_jump_under_a_high_ceiling_is_safe():
@@ -230,7 +230,7 @@ def test_a_jump_under_a_high_ceiling_is_safe():
     game.runner.distance = 150.0
     play(game, lambda game: game.runner.distance > 300.0,
          lambda game, frame: game.runner.jump())
-    assert game.damage == 0
+    assert game.hits == 0
 
 
 def test_a_jump_just_before_a_low_ceiling_is_over_before_it_gets_there():
@@ -238,14 +238,14 @@ def test_a_jump_just_before_a_low_ceiling_is_over_before_it_gets_there():
     game.runner.distance = 100.0
     game.runner.jump()
     play(game, lambda game: game.runner.distance > 200.0)
-    assert game.damage == 0
+    assert game.hits == 0
 
 
 def test_a_crevice_is_crossed_by_a_runner_who_jumps_and_is_a_hit_for_one_who_does_not():
     crevice = c.Obstacle(c.Kind.CREVICE, 0, 200.0, c.LANE_COUNT)
     walker = g.Game(Under(6.0, [crevice]))
     walker.runner.distance = 150.0
-    heard = play(walker, lambda game: game.damage == 1)
+    heard = play(walker, lambda game: game.hits == 1)
     assert Event.HIT in heard and walker.crashed_into == crevice
 
     def jump_before(game, frame):
@@ -254,13 +254,13 @@ def test_a_crevice_is_crossed_by_a_runner_who_jumps_and_is_a_hit_for_one_who_doe
     jumper = g.Game(Under(6.0, [crevice]))
     jumper.runner.distance = 150.0
     play(jumper, lambda game: game.runner.distance > 260.0, jump_before)
-    assert jumper.damage == 0
+    assert jumper.hits == 0
 
 
 def test_a_crevice_is_not_cleared_by_a_slide_or_a_hop():
     crevice = c.Obstacle(c.Kind.CREVICE, 0, 200.0, c.LANE_COUNT)
     game = g.Game(Under(6.0, [crevice]))
     game.runner.distance = 150.0
-    play(game, lambda game: game.damage == 1,
+    play(game, lambda game: game.hits == 1,
          lambda game, frame: game.runner.hop(+1) if frame == 5 else None)
     assert game.crashed_into == crevice

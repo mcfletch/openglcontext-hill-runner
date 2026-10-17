@@ -16,7 +16,7 @@ from openglcontext_hill_runner.app import RunnerContext
 CONTROLS = """\
 Hill runner: left and right hop between the paths, up jumps, down slides.
 Escape opens the menu. F2 saves a screenshot. Alt+F shows the developer overlay.
-Three hits end a run, and 500 m run without one heals a hit.
+A hit costs 100 coins to continue; with fewer, the run is over.
 """
 
 

@@ -28,8 +28,8 @@
 - Window: tiles, runner, coins and jewels, HUD, pause, credits and end-of-run screens, music and effects,
   shadows. Where the runner stands, how it is turned and where the camera is come from `Session`.
 - Credits printed at start and shown from the menu.
-- Damage: three hits end a run, a hit knocks the runner down for 1.3 s (the Roll clip) and resets the speed, 500 m without one heals one; edge shading from the
-  engine's `DamageIndicator` (`level`, `hurt_all`). Main screen with Play and Demo.
+- Hits: a hit knocks the runner down for 1.3 s (the Roll clip) and resets the speed, and costs a continue of 100 coins counted down over that time (`Game.owed`, `CONTINUE_COST`); too few coins end the run. A jewel is worth its 5 in coins. The edge shading is the
+  engine's `DamageIndicator` (`level`, `hurt_all`), whole while the coins count and clear when they are paid, and the coin readout flashes red. Main screen with Play and Demo.
 - Caves: `Course.caves` (a cave takes the place of a fork), `ceiling`, `jump_clear`, `Kind.CREVICE`; the valley over a cave is filled
   to the hills beside it and the tunnel is bored through the fill (`tunnel`, `portal`), rock country is forced in and out of a cave, crevices are cut into the floor
   (`Landscape.footing` is where feet stand); the tunnel's rock, the ground about its openings and the torches are tile meshes with a point light

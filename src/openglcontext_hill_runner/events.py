@@ -13,11 +13,11 @@ class Event(enum.Enum):
     SLIDE = 'slide'
     COIN = 'coin'
     JEWEL = 'jewel'
-    #: The runner hit an obstacle and has damage left to take.
+    #: The runner hit an obstacle, and the coins of a continue begin to count down.
     HIT = 'hit'
     #: The runner is back on its feet after a hit and runs on.
     RISE = 'rise'
-    #: Metres run without a hit took one damage away.
-    HEAL = 'heal'
-    #: The hit that ended the run.
+    #: The continue is paid for: the coins have counted down and the red clears.
+    PAID = 'paid'
+    #: The coins ran out before the continue was paid for: the run is over.
     CRASH = 'crash'
