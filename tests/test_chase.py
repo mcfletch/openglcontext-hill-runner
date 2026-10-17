@@ -204,3 +204,21 @@ def test_the_camera_comes_back_in_line_as_it_rises_out_of_the_ceiling():
     for _ in range(300):
         follower.advance(1 / 60)
     assert follower.camera_offset()[0] + chase.CAMERA_BACK * math.sin(follower.heading()) == pytest.approx(0.0, abs=1e-6)
+
+
+@pytest.mark.parametrize('seed', [1, 2, 3])
+def test_the_camera_stays_above_the_floor_under_it_through_a_cave(seed):
+    world = c.Course(seed)
+    cave = world.caves_between(0.0, 60000.0)[0]
+    body = r.Runner(world)
+    body.distance = cave.start - 40.0
+    body.speed = 24.0
+    follower = chase.Chase(body)
+    lowest = np.inf
+    while body.distance < cave.end + 40.0:
+        body.distance += 24.0 / 60
+        target = follower.advance(1 / 60)
+        eye_y = target[1] + follower.camera_offset()[1]
+        behind = body.distance + chase.LOOK_AHEAD - chase.CAMERA_BACK * math.cos(follower.heading())
+        lowest = min(lowest, eye_y - float(c.ground_height(behind)))
+    assert lowest >= chase.FLOOR_CLEARANCE - 1e-6

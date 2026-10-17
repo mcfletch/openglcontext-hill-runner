@@ -27,6 +27,9 @@ CAMERA_UP = 2.5
 #: metres allows.
 CEILING_CLEARANCE = 0.75
 MIN_UP = 0.0
+#: The camera stands at least this far above the floor beneath it, which on a slope is higher
+#: than the floor at the point looked at, and wins over the ceiling where there is no room for both.
+FLOOR_CLEARANCE = 0.6
 SMOOTH_TIME = 0.45
 LEAD_TIME = 0.9
 AHEAD_OF_CAMERA = 2.5
@@ -65,12 +68,15 @@ class Chase:
         ahead = runner.distance + LOOK_AHEAD
         along = course.lane_x(runner.lane, ahead) - course.lane_x(runner.lane, runner.distance)
         height = float(c.ground_height(ahead)) + HEIGHT + JUMP_LIFT * runner.height
+        under = runner.distance + LOOK_AHEAD - CAMERA_BACK * math.cos(self.heading())
+        floor = float(c.ground_height(under)) + FLOOR_CLEARANCE - height
         self._glide(self._room(height, max(AHEAD_OF_CAMERA, runner.speed * LEAD_TIME)),
-                    self._room(height, AHEAD_OF_CAMERA), dt)
+                    self._room(height, AHEAD_OF_CAMERA), floor, dt)
         return (float(self._x + along) - LOOK_ASIDE * self.sunk(), height, -ahead)
 
-    def _glide(self, wanted: float, limit: float, dt: float) -> None:
-        """Move the camera's height toward ``wanted`` without ever standing above ``limit``."""
+    def _glide(self, wanted: float, limit: float, floor: float, dt: float) -> None:
+        """Move the camera's height toward ``wanted``, never above ``limit`` nor below ``floor``."""
+        wanted = max(wanted, floor)
         omega = 2.0 / SMOOTH_TIME
         x = omega * dt
         damping = 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x)
@@ -80,6 +86,8 @@ class Chase:
         self._up = wanted + (change + carried) * damping
         if self._up > limit:
             self._up, self._rising = limit, min(self._rising, 0.0)
+        if self._up < floor:
+            self._up, self._rising = floor, max(self._rising, 0.0)
 
     def _room(self, looking_at: float, reach: float) -> float:
         """How far above ``looking_at`` the camera may stand: as high as it likes in the open,
