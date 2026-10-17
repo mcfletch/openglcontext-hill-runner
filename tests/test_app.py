@@ -477,3 +477,42 @@ def test_the_more_damage_the_redder_the_edges_of_the_picture(tmp_path):
         redness.append(edge_redness(np.asarray(Image.open(shots / "shot.png").convert("RGB"),
                                                dtype=float)))
     assert redness[0] + 4.0 < redness[1] < redness[2] - 4.0, redness
+
+
+HAZE = '''
+from OpenGLContext.scenegraph.basenodes import Fog
+from openglcontext_hill_runner.app import REACH, RunnerContext
+
+
+class Hazy(RunnerContext):
+    seed = 1
+    demo = True
+    sound = False
+    photos = False
+    forest = False
+    frames = 0
+
+    def OnIdle(self, *arguments):
+        type(self).frames += 1
+        if self.frames == 3:
+            fog = [n for n in self.sg.children if isinstance(n, Fog)]
+            print('HAZE', len(fog), fog[0].visibilityRange <= REACH, flush=True)
+        return super().OnIdle(*arguments)
+
+
+Hazy.ContextMainLoop(size=(320, 180))
+'''
+
+
+@pytest.mark.needs_gl
+@pytest.mark.skipif(not _has_gl(), reason="no GL display available")
+def test_the_haze_hides_everything_before_the_edge_of_the_hill_that_is_made(tmp_path):
+    env = dict(os.environ)
+    env.update(OPENGLCONTEXT_PROFILE="core", OPENGLCONTEXT_HIDDEN="1",
+               OPENGLCONTEXT_AUTO_EXIT_FRAMES="10")
+    script = tmp_path / "hazy.py"
+    script.write_text(HAZE)
+    result = subprocess.run([sys.executable, str(script)], env=env, capture_output=True,
+                            text=True, timeout=240)
+    assert 'Traceback' not in result.stderr, result.stderr[-2000:]
+    assert 'HAZE 1 True' in result.stdout.splitlines(), result.stdout[-500:]

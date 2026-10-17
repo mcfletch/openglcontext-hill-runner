@@ -43,6 +43,9 @@ from openglcontext_hill_runner.treasure import TreasureField
 
 #: How far ahead of the camera the hill is made, in metres.
 REACH = 260.0
+#: The distance at which the haze hides everything: no further than the tiles are made, so the
+#: far edge of the hill, and the trees standing beyond it, are lost in the haze rather than seen.
+HAZE_RANGE = REACH
 FOV = math.radians(62.0)
 #: How much further the camera backs off at full speed, as a fraction of its distance.
 CAMERA_PULL_BACK = 0.08
@@ -148,7 +151,7 @@ class RunnerContext(Context):
         self._fill_the_cover()
         self.sg.children = [
             Background(skyColor=SKY, skyAngle=[1.0, 1.5], groundColor=[HAZE]),
-            Fog(color=HAZE, visibilityRange=REACH * 1.15),
+            Fog(color=HAZE, visibilityRange=HAZE_RANGE),
             DirectionalLight(direction=SUN, color=(1.0, 0.96, 0.88), intensity=2.4, shadows=True),
             self.terrain, self.treasure, self.runner_node,
             *([self.woods, *self.cover.nodes] if self.woods and self.cover else []),
