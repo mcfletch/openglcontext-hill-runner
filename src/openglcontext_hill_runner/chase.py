@@ -28,9 +28,10 @@ MIN_UP = 0.0
 RISE_RATE = 3.0
 AHEAD_OF_CAMERA = 2.5
 #: Where the camera has sunk to head height behind the runner, the runner fills the view along the
-#: floor. It then stands SIDE_STEP metres to the right of the runner and looks LOOK_ASIDE metres to
-#: the left of where it would look, across the room and not along the runner's back, by as much as
-#: it has sunk; it has sunk fully when it is SIDE_SINKING metres below where it stands in the open.
+#: floor. It then stands SIDE_STEP metres to the right of the runner's path and looks LOOK_ASIDE
+#: metres to the left of where it would look, across the room and not along the runner's back, by
+#: as much as it has sunk; it has sunk fully when it is SIDE_SINKING metres below where it stands
+#: in the open.
 SIDE_STEP = 1.1
 LOOK_ASIDE = 1.2
 SIDE_SINKING = 0.8
@@ -86,9 +87,10 @@ class Chase:
 
     def camera_offset(self) -> tuple[float, float, float]:
         """Where the camera stands, from the point it looks at: behind it along the runner's
-        path."""
+        path, and to the right of the path by SIDE_STEP once sunk. The point looked at has moved
+        LOOK_ASIDE to the left, which the offset also covers."""
         turn = self.heading()
-        return (-CAMERA_BACK * math.sin(turn) + SIDE_STEP * self.sunk(), self._up,
+        return (-CAMERA_BACK * math.sin(turn) + (SIDE_STEP + LOOK_ASIDE) * self.sunk(), self._up,
                 CAMERA_BACK * math.cos(turn))
 
     def sunk(self) -> float:

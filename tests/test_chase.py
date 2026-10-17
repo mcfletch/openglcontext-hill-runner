@@ -176,8 +176,10 @@ def test_where_the_camera_is_ducked_it_stands_to_the_right_and_looks_across_to_t
     follower = chase.Chase(body)
     for _ in range(60):
         target = follower.advance(1 / 60)
-    sideways = follower.camera_offset()[0] + chase.CAMERA_BACK * math.sin(follower.heading())
-    assert sideways >= 0.8 * chase.SIDE_STEP
+    eye_x = target[0] + follower.camera_offset()[0]
+    path_x = world.lane_x(body.lane, body.distance + chase.LOOK_AHEAD
+                          - chase.CAMERA_BACK * math.cos(follower.heading()))
+    assert eye_x - path_x >= 0.8 * chase.SIDE_STEP
     assert target[0] < body.x - 0.8 * chase.LOOK_ASIDE
     assert follower.sunk() > 0.8
 
