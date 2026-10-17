@@ -20,12 +20,15 @@ HEADING_AHEAD = 6.0
 CAMERA_BACK = 5.1
 CAMERA_UP = 2.5
 #: Under a ceiling the camera stands this far below it at most, and no lower than MIN_UP above the
-#: point it looks at; it sinks the moment the ceiling comes down and rises again at RISE_RATE of
-#: its own height a second. The ceiling is looked for from the camera to AHEAD_OF_CAMERA metres
-#: before it.
+#: point it looks at. It glides to the height the ceiling ahead allows, a critically damped move
+#: that takes SMOOTH_TIME seconds to cover most of the way, and it starts as soon as the lowest
+#: ceiling within LEAD_TIME seconds of running ahead of the camera comes down, and no later than
+#: the ceiling reaches it: it never stands higher than the ceiling over the next AHEAD_OF_CAMERA
+#: metres allows.
 CEILING_CLEARANCE = 0.75
 MIN_UP = 0.0
-RISE_RATE = 3.0
+SMOOTH_TIME = 0.45
+LEAD_TIME = 0.9
 AHEAD_OF_CAMERA = 2.5
 #: Where the camera has sunk to head height behind the runner, the runner fills the view along the
 #: floor. It then stands SIDE_STEP metres to the right of the runner's path and looks LOOK_ASIDE
@@ -45,6 +48,7 @@ class Chase:
         self._x = runner.x
         self._distance = runner.distance
         self._up = CAMERA_UP
+        self._rising = 0.0
 
     def advance(self, dt: float) -> tuple[float, float, float]:
         """Move ``dt`` seconds on; returns the point to look at.
@@ -61,17 +65,29 @@ class Chase:
         ahead = runner.distance + LOOK_AHEAD
         along = course.lane_x(runner.lane, ahead) - course.lane_x(runner.lane, runner.distance)
         height = float(c.ground_height(ahead)) + HEIGHT + JUMP_LIFT * runner.height
-        room = self._room(height)
-        self._up = room if room < self._up else self._up + (room - self._up) * (
-            1.0 - math.exp(-RISE_RATE * dt))
+        self._glide(self._room(height, max(AHEAD_OF_CAMERA, runner.speed * LEAD_TIME)),
+                    self._room(height, AHEAD_OF_CAMERA), dt)
         return (float(self._x + along) - LOOK_ASIDE * self.sunk(), height, -ahead)
 
-    def _room(self, looking_at: float) -> float:
+    def _glide(self, wanted: float, limit: float, dt: float) -> None:
+        """Move the camera's height toward ``wanted`` without ever standing above ``limit``."""
+        omega = 2.0 / SMOOTH_TIME
+        x = omega * dt
+        damping = 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x)
+        change = self._up - wanted
+        carried = (self._rising + omega * change) * dt
+        self._rising = (self._rising - omega * carried) * damping
+        self._up = wanted + (change + carried) * damping
+        if self._up > limit:
+            self._up, self._rising = limit, min(self._rising, 0.0)
+
+    def _room(self, looking_at: float, reach: float) -> float:
         """How far above ``looking_at`` the camera may stand: as high as it likes in the open,
-        and under a ceiling clear of the lowest of it between the camera and a little past it."""
+        and under a ceiling clear of the lowest of it from the camera to ``reach`` metres past
+        it."""
         runner = self.runner
         first = runner.distance + LOOK_AHEAD - CAMERA_BACK
-        spots = first + np.linspace(0.0, AHEAD_OF_CAMERA, 9)
+        spots = first + np.linspace(0.0, reach, max(9, int(reach / 0.5) + 1))
         roof = np.asarray(runner.course.ceiling(spots))
         if not np.isfinite(roof).any():
             return CAMERA_UP

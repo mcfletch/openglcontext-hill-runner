@@ -151,7 +151,7 @@ def test_under_a_high_ceiling_the_camera_is_where_it_is_in_the_open():
     assert follower.camera_offset()[1] == pytest.approx(chase.CAMERA_UP)
 
 
-def test_the_camera_is_never_through_the_ceiling_on_the_way_in_and_rises_gently_on_the_way_out():
+def test_the_camera_is_never_through_the_ceiling_and_glides_down_and_up():
     world = c.Course(1)
     cave = world.caves_between(0.0, 60000.0)[0]
     body = r.Runner(world)
@@ -163,9 +163,10 @@ def test_the_camera_is_never_through_the_ceiling_on_the_way_in_and_rises_gently_
         top, roof = camera_top(follower, body)
         assert top < roof - chase.CEILING_CLEARANCE + 0.05 or follower.camera_offset()[1] <= chase.MIN_UP
         ups.append(follower.camera_offset()[1])
-    rises = np.diff(ups)
+    steps = np.diff(ups) * 60
     assert min(ups) < chase.CAMERA_UP and ups[-1] == pytest.approx(chase.CAMERA_UP, abs=0.05)
-    assert rises.max() <= chase.RISE_RATE * chase.CAMERA_UP / 60 + 1e-9
+    assert np.abs(steps).max() < 5.0
+    assert np.abs(np.diff(steps)).max() * 60 < 80.0
 
 
 def test_where_the_camera_is_ducked_it_stands_to_the_right_and_looks_across_to_the_left():
