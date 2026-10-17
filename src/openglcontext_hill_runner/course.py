@@ -341,6 +341,8 @@ class Course:
     def __init__(self, seed: int = 0, caves: bool = True) -> None:
         """The hill of ``seed``, with caves in it unless ``caves`` is false."""
         self.seed = int(seed)
+        #: Whether the hill has caves in it.
+        self.caves = bool(caves)
         self._chunks: OrderedDict[int, Chunk] = OrderedDict()
         self._lock = threading.Lock()
         self._phase = stream(self.seed, 'wander').uniform(0.0, 2.0 * math.pi, 2)

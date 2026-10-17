@@ -297,10 +297,14 @@ class Landscape:
         whole = _face_length(np.ones_like(steep), steep)
         total = whole + (whole - _face_length(t_out, steep)) + (_face_length(t_in, steep) - whole)
         settle = c.smooth((df[near] - cave.end) / FACE_SETTLE)
-        end_gap = self.trail_gap(xf[near], cave.end)
-        at_end = (self._ground(xf[near], cave.end, end_gap + FAR_FROM_TRAIL)
-                  - self._ground(xf[near], cave.end, end_gap)) / FACE_LENGTH
-        snapped = np.round(2.0 * _face_length(np.ones_like(at_end), at_end) / FACE_REPEAT) * FACE_REPEAT
+        # The slope at the cave's end depends on the column and the cave only; a mesh has far
+        # fewer columns than points.
+        columns, which = np.unique(np.stack([xf[near], cave.end]), axis=1, return_inverse=True)
+        end_gap = self.trail_gap(columns[0], columns[1])
+        at_end = (self._ground(columns[0], columns[1], end_gap + FAR_FROM_TRAIL)
+                  - self._ground(columns[0], columns[1], end_gap)) / FACE_LENGTH
+        snapped = (np.round(2.0 * _face_length(np.ones_like(at_end), at_end) / FACE_REPEAT)
+                   * FACE_REPEAT)[which.ravel()]
         out[near] = total * (1.0 - settle) + snapped * settle
         return out.reshape(x.shape)
 

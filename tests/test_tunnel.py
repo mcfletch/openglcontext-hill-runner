@@ -188,3 +188,16 @@ def test_the_ground_has_no_cell_inside_the_window_and_the_patch_takes_their_plac
     inside = (middle[:, 0] > x0 + 0.01) & (middle[:, 0] < x1 - 0.01) & (d > d0 + 0.01) & (d < d1 - 0.01)
     assert not (inside & lattice & (np.abs(d - d0) > 0.0)).sum() > len(patch.triangles)
     assert len(ground.positions) > 70_000 // 2
+
+
+def test_the_places_to_keep_clear_are_asked_for_only_when_the_tunnel_is_made():
+    land, asked = ls.Landscape(c.Course(1)), []
+    cave = land.course.caves_between(0.0, 60000.0)[0]
+
+    def places():
+        asked.append(1)
+        return s._fixings(land, cave)
+
+    first = t.bore(land, cave, places)
+    again = t.bore(land, cave, places)
+    assert again is first and len(asked) == 1

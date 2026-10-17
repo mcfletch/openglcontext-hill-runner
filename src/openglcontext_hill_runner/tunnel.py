@@ -19,6 +19,7 @@ import math
 import threading
 import weakref
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -308,15 +309,18 @@ _held: "weakref.WeakKeyDictionary[Landscape, OrderedDict[int, Tunnel]]" = weakre
 _lock = threading.Lock()
 
 
-def bore(land: Landscape, cave: c.Cave, keep_clear: "np.ndarray | None" = None) -> Tunnel:
+def bore(land: Landscape, cave: c.Cave,
+         keep_clear: "np.ndarray | Callable[[], np.ndarray] | None" = None) -> Tunnel:
     """The tunnel of ``cave``, made once and kept for as long as the landscape is: the last few
     are held. ``keep_clear`` is places on the walls, ``(K, 3)``, where nothing is cut -- where
-    something is fixed to them."""
+    something is fixed to them -- or a function that answers them, called only when the tunnel
+    is made."""
     with _lock:
         tunnels = _held.setdefault(land, OrderedDict())
         found = tunnels.get(cave.index)
         if found is None:
-            clear = np.zeros((0, 3)) if keep_clear is None else np.asarray(keep_clear, dtype=float)
+            places = keep_clear() if callable(keep_clear) else keep_clear
+            clear = np.zeros((0, 3)) if places is None else np.asarray(places, dtype=float)
             found = tunnels[cave.index] = _build(land, cave, clear)
             while len(tunnels) > KEPT:
                 tunnels.popitem(last=False)

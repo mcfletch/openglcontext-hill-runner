@@ -152,8 +152,8 @@ class RunnerContext(Context):
             self.land = Landscape(course)
             self._plant_the_forest(self.land)
         self.session = Session(self.land, demo=self.demo)
-        self.terrain = GeneratedTiles(
-            HillTiles(self.land, self.look, trees=self.woods is None), reach=REACH, fovy=FOV)
+        tiles = HillTiles(self.land, self.look, trees=self.woods is None)
+        self.terrain = GeneratedTiles(tiles, reach=REACH, fovy=FOV, maker=tiles.maker)
         self._fog = Fog(color=HAZE, visibilityRange=HAZE_RANGE)
         self._sun = DirectionalLight(direction=SUN, color=(1.0, 0.96, 0.88),
                                      intensity=SUN_INTENSITY, shadows=True,

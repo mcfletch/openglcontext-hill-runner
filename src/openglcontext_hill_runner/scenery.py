@@ -17,6 +17,7 @@ import enum
 import math
 import threading
 from collections import OrderedDict
+from functools import partial
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -172,7 +173,7 @@ def _portals(land: Landscape, first: float, last: float) -> "list[portal.Portal]
     down the hill."""
     found = []
     for cave in land.course.caves_between(first - 60.0, last + 60.0):
-        bored = tunnel.bore(land, cave, _fixings(land, cave))
+        bored = tunnel.bore(land, cave, partial(_fixings, land, cave))
         found += [p for p in (bored.mouth_ground, bored.exit_ground)
                   if p.window[2] < last and p.window[3] > first]
     return found
@@ -590,7 +591,7 @@ def cave_parts(land: Landscape, cave: c.Cave, index: int, origin: float = 0.0
     """The meshes of ``cave`` that lie in chunk ``index``, by what each is made of: the rock of the
     tunnel and the torches. Empty where the cave is not in the chunk. z is measured from ``origin``."""
     start, end = index * c.CHUNK_LENGTH, (index + 1) * c.CHUNK_LENGTH
-    rock = tunnel.bore(land, cave, _fixings(land, cave)).piece(index, origin)
+    rock = tunnel.bore(land, cave, partial(_fixings, land, cave)).piece(index, origin)
     if rock is None:
         return {}
     parts: dict[Part, list[Geometry]] = {Part.ROCK: [rock]}

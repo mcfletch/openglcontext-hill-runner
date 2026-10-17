@@ -218,3 +218,20 @@ def test_everything_in_a_cave_tile_lies_in_its_bounds(underground):
         low, high = positions.min(axis=0), positions.max(axis=0)
         for corner in (low, high):
             assert box.distance_to(tuple(float(v) for v in corner)) < 0.5, corner
+
+
+def test_a_tile_made_as_data_in_another_process_is_the_tile_made_here(land, look):
+    import pickle
+
+    from OpenGLContext.loaders.tiles3d.tileprocess import TileProcesses
+
+    generator = t.HillTiles(land, look)
+    here = t.make_tile(land, 3, generator.trees)
+    with TileProcesses(*generator.maker, count=1) as pool:
+        there = pool.make(3)
+    assert pickle.loads(pickle.dumps(here)).size == here.size
+    assert there.size == here.size and there.lights == here.lights
+    assert [p.wears for p in there.pieces] == [p.wears for p in here.pieces]
+    for a, b in zip(there.pieces, here.pieces, strict=True):
+        assert np.array_equal(a.geometry.positions, b.geometry.positions)
+        assert np.array_equal(a.geometry.indices, b.geometry.indices)

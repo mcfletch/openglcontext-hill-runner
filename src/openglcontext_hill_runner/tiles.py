@@ -52,12 +52,119 @@ class TileScene:
     group: Group
 
 
+@dataclass(frozen=True, eq=False)
+class Piece:
+    """A mesh of a tile and what it wears: a ground layer, the trail (``None``) or a scenery part."""
+
+    wears: "Layer | s.Part | None"
+    geometry: Geometry
+    colours: "np.ndarray | None" = None
+    casts: bool = False
+    blend: bool = False
+
+
+@dataclass(frozen=True, eq=False)
+class TileData:
+    """A tile as plain data: its meshes, where its torches' lights hang, and its size in bytes.
+    It holds no node, so it pickles and a worker process can send it."""
+
+    pieces: "list[Piece]"
+    lights: "list[tuple[float, float, float]]"
+    size: int
+
+
 def _bytes(geometry: Geometry) -> int:
     return int(sum(array.nbytes for array in geometry))
 
 
+def overlay(ground: Geometry, tint: np.ndarray,
+            weight: np.ndarray) -> tuple[Geometry, np.ndarray]:
+    """The part of ``ground`` a layer shows in, lifted a hair, with the layer's weight as alpha."""
+    triangles = ground.indices.reshape(-1, 3)
+    keep = weight[triangles].max(axis=1) > 0.01
+    used, inverse = np.unique(triangles[keep], return_inverse=True)
+    positions = ground.positions[used].copy()
+    positions[:, 1] += OVERLAY_LIFT
+    lifted = Geometry(positions, ground.normals[used], ground.texcoords[used],
+                      ground.tangents[used], inverse.reshape(-1).astype(np.uint32))
+    colours = tint[used].copy()
+    colours[:, 3] = np.clip(weight[used], 0.0, 1.0)
+    return lifted, colours
+
+
+def make_tile(land: Landscape, key: int, trees: bool = True) -> TileData:
+    """The meshes of chunk ``key`` of ``land``, around the chunk's own origin. No materials and
+    no GL, so it runs in a worker process."""
+    course = land.course
+    chunk = course.chunk(key)
+    origin = key * c.CHUNK_LENGTH
+    pieces: list[Piece] = []
+    size = 0
+
+    ground = s.terrain(land, key, origin)
+    x, d = ground.positions[:, 0].astype(float), origin - ground.positions[:, 2].astype(float)
+    tint = land.tint(x, d)
+    layers = land.layer_weights(x, d)
+    base = int(np.argmax(layers.mean(axis=1)))
+    pieces.append(Piece(Layer(base), ground, tint))
+    size += _bytes(ground) + tint.nbytes
+    for index, layer in enumerate(Layer):
+        if index == base or layers[index].max() < OVERLAY_FROM:
+            continue
+        lifted, colours = overlay(ground, tint, layers[index])
+        pieces.append(Piece(layer, lifted, colours, blend=True))
+        size += _bytes(lifted) + colours.nbytes
+
+    strips = [p for p in (s.path(land, lane, key, origin) for lane in c.ALL_LANES) if p is not None]
+    trail = merge(strips)
+    trail_tint = land.tint(trail.positions[:, 0].astype(float),
+                           origin - trail.positions[:, 2].astype(float))
+    pieces.append(Piece(None, trail, trail_tint))
+    size += _bytes(trail) + trail_tint.nbytes
+
+    by_part: dict[s.Part, list[Geometry]] = {}
+    rocks = s.rocks(land, chunk, origin)
+    if rocks is not None:
+        by_part[s.Part.ROCK] = [rocks]
+    for obstacle in chunk.obstacles:
+        for part, geometry in s.obstacle(land, obstacle, origin).items():
+            by_part.setdefault(part, []).append(geometry)
+    if chunk.dividers:
+        by_part.setdefault(s.Part.ROCK, []).extend(s.divider(land, h, origin) for h in chunk.dividers)
+    if trees:
+        foliage, trunks = s.trees(land, chunk, origin)
+        if foliage is not None and trunks is not None:
+            by_part.setdefault(s.Part.FOLIAGE, []).append(foliage)
+            by_part.setdefault(s.Part.BARK, []).append(trunks)
+    lights: list[tuple[float, float, float]] = []
+    for cave in course.caves_between(chunk.start, chunk.start + c.CHUNK_LENGTH):
+        for part, parts in s.cave_parts(land, cave, key, origin).items():
+            by_part.setdefault(part, []).extend(parts)
+        lights.extend(s.cave_lights(land, cave, key, origin))
+    for part, geometries in by_part.items():
+        merged = merge(geometries)
+        pieces.append(Piece(part, merged, casts=part is not s.Part.FLAME))
+        size += _bytes(merged)
+    return TileData(pieces, lights, size)
+
+
+class TileMaker:
+    """What a worker process holds: the landscape of a seed, and a ``make`` for its tiles."""
+
+    def __init__(self, seed: int, trees: bool = True, caves: bool = True) -> None:
+        self.land = Landscape(c.Course(seed, caves))
+        self.trees = trees
+
+    def make(self, key: int) -> TileData:
+        """The data of chunk ``key``."""
+        return make_tile(self.land, key, self.trees)
+
+
 class HillTiles:
     """Generates the tiles of one landscape."""
+
+    #: The factory a worker process builds its :class:`TileMaker` with, as the engine names it.
+    MAKER = 'openglcontext_hill_runner.tiles:TileMaker'
 
     def __init__(self, land: Landscape, look: Look | None = None, trees: bool = True) -> None:
         self.land = land
@@ -65,6 +172,12 @@ class HillTiles:
         self.look = look or make_look()
         #: Whether tiles plant their own simple trees; off where the woods are planted separately.
         self.trees = trees
+
+    @property
+    def maker(self) -> "tuple[str, tuple[int, bool, bool]]":
+        """What :class:`~OpenGLContext.scenegraph.generatedtiles.GeneratedTiles` takes as
+        ``maker`` to have the tiles made in worker processes."""
+        return self.MAKER, (self.course.seed, self.trees, self.course.caves)
 
     # -- the generator protocol --
     def keys_near(self, point: np.ndarray, radius: float) -> range:
@@ -88,79 +201,30 @@ class HillTiles:
         return (0.0, 0.0, -key * c.CHUNK_LENGTH)
 
     def generate(self, key: int) -> tuple[TileScene, int]:
-        """The meshes of chunk ``key``, and their size in bytes. Runs on a worker."""
-        land, look = self.land, self.look
-        chunk = self.course.chunk(key)
-        origin = key * c.CHUNK_LENGTH
+        """The meshes of chunk ``key``, and their size in bytes. Runs on a worker thread."""
+        return self.assemble(key, make_tile(self.land, key, self.trees))
+
+    def assemble(self, _key: int, data: TileData) -> tuple[TileScene, int]:
+        """The nodes of a tile from its data, wearing this generator's materials."""
+        look = self.look
         nodes: list[Any] = []
-        size = 0
-
-        ground = s.terrain(land, key, origin)
-        x, d = ground.positions[:, 0].astype(float), origin - ground.positions[:, 2].astype(float)
-        tint = land.tint(x, d)
-        layers = land.layer_weights(x, d)
-        base = int(np.argmax(layers.mean(axis=1)))
-        nodes.append(self._node(ground, look.ground[Layer(base)], tint))
-        size += _bytes(ground) + tint.nbytes
-        for index, layer in enumerate(Layer):
-            if index == base or layers[index].max() < OVERLAY_FROM:
-                continue
-            overlay, colours = self._overlay(ground, tint, layers[index])
-            nodes.append(self._node(overlay, look.ground[layer], colours, blend=True))
-            size += _bytes(overlay) + colours.nbytes
-
-        strips = [p for p in (s.path(land, lane, key, origin) for lane in c.ALL_LANES) if p is not None]
-        trail = merge(strips)
-        trail_tint = land.tint(trail.positions[:, 0].astype(float),
-                               origin - trail.positions[:, 2].astype(float))
-        nodes.append(self._node(trail, look.path, trail_tint))
-        size += _bytes(trail) + trail_tint.nbytes
-
-        by_part: dict[s.Part, list[Geometry]] = {}
-        rocks = s.rocks(land, chunk, origin)
-        if rocks is not None:
-            by_part[s.Part.ROCK] = [rocks]
-        for obstacle in chunk.obstacles:
-            for part, geometry in s.obstacle(land, obstacle, origin).items():
-                by_part.setdefault(part, []).append(geometry)
-        if chunk.dividers:
-            by_part.setdefault(s.Part.ROCK, []).extend(s.divider(land, h, origin) for h in chunk.dividers)
-        if self.trees:
-            foliage, trunks = s.trees(land, chunk, origin)
-            if foliage is not None and trunks is not None:
-                by_part.setdefault(s.Part.FOLIAGE, []).append(foliage)
-                by_part.setdefault(s.Part.BARK, []).append(trunks)
-        for cave in self.course.caves_between(chunk.start, chunk.start + c.CHUNK_LENGTH):
-            for part, pieces in s.cave_parts(land, cave, key, origin).items():
-                by_part.setdefault(part, []).extend(pieces)
-            for at in s.cave_lights(land, cave, key, origin):
-                nodes.append(PointLight(location=at, color=TORCH_COLOUR, intensity=TORCH_INTENSITY,
-                                        radius=TORCH_RADIUS, shadows=False))
-        for part, geometries in by_part.items():
-            merged = merge(geometries)
-            nodes.append(self._node(merged, look.parts[part], casts=part is not s.Part.FLAME))
-            size += _bytes(merged)
-
+        for piece in data.pieces:
+            if piece.wears is None:
+                material = look.path
+            elif isinstance(piece.wears, Layer):
+                material = look.ground[piece.wears]
+            else:
+                material = look.parts[piece.wears]
+            nodes.append(self._node(piece.geometry, material, piece.colours,
+                                    casts=piece.casts, blend=piece.blend))
+        for at in data.lights:
+            nodes.append(PointLight(location=at, color=TORCH_COLOUR, intensity=TORCH_INTENSITY,
+                                    radius=TORCH_RADIUS, shadows=False))
         group = Group()
         group.children = nodes
-        return TileScene(group), size
+        return TileScene(group), data.size
 
     # -- building shapes --
-    @staticmethod
-    def _overlay(ground: Geometry, tint: np.ndarray,
-                 weight: np.ndarray) -> tuple[Geometry, np.ndarray]:
-        """The part of ``ground`` a layer shows in, lifted a hair, with the layer's weight as alpha."""
-        triangles = ground.indices.reshape(-1, 3)
-        keep = weight[triangles].max(axis=1) > 0.01
-        used, inverse = np.unique(triangles[keep], return_inverse=True)
-        positions = ground.positions[used].copy()
-        positions[:, 1] += OVERLAY_LIFT
-        overlay = Geometry(positions, ground.normals[used], ground.texcoords[used],
-                           ground.tangents[used], inverse.reshape(-1).astype(np.uint32))
-        colours = tint[used].copy()
-        colours[:, 3] = np.clip(weight[used], 0.0, 1.0)
-        return overlay, colours
-
     @staticmethod
     def _node(geometry: Geometry, material: Any, colours: np.ndarray | None = None,
               casts: bool = False, blend: bool = False) -> Any:
