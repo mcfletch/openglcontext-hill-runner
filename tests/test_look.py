@@ -48,3 +48,33 @@ def test_photographs_are_used_for_the_ground_and_the_paths_when_asked_for(monkey
     monkeypatch.setattr(cc0, 'try_material', lambda name: maps)
     made = look.make_look(size=32, photos=True)
     assert all(m.baseTexture for m in made.ground.values()) and made.path.baseTexture
+
+
+@pytest.mark.parametrize('recipe', [look.GRASS, look.DIRT, look.FOREST_FLOOR, look.ROCK])
+def test_a_mottled_surface_is_square_in_range_and_varies(recipe):
+    maps = look.mottled(recipe, 32)
+    assert maps.base.shape == (32, 32, 3)
+    for layer in (maps.base, maps.roughness, maps.height):
+        assert 0.0 <= layer.min() and layer.max() <= 1.0
+    assert maps.base.std() > 0.01
+
+
+def test_each_mottled_surface_has_its_own_colours():
+    means = [look.mottled(r, 32).base.mean(axis=(0, 1))
+             for r in (look.GRASS, look.DIRT, look.FOREST_FLOOR, look.ROCK)]
+    assert len({tuple(np.round(m, 2)) for m in means}) == 4
+
+
+def test_the_image_files_a_photograph_reads_are_closed(monkeypatch, maps):
+    opened = []
+    real = Image.open
+
+    def spy(path, *args, **kwargs):
+        picture = real(path, *args, **kwargs)
+        opened.append(picture)
+        return picture
+
+    monkeypatch.setattr(look.Image, 'open', spy)
+    monkeypatch.setattr(cc0, 'try_material', lambda name: maps)
+    look.photographic('grass')
+    assert opened and all(p.fp is None for p in opened)

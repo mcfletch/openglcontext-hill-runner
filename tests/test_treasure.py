@@ -111,3 +111,20 @@ def test_the_coin_texture_has_a_raised_rim_and_a_design():
     assert rim > plain + 0.1
     assert np.ptp(maps.height[40:90, 40:90]) > 0.15 and centre != plain
     assert (maps.metallic >= 0.9).all()
+
+
+def test_a_new_run_shows_its_own_coins_not_those_the_last_one_left_at_the_same_places():
+    field = tr.TreasureField()
+    old = g.Game(c.Course(3))
+    old.runner.distance = 300.0
+    field.update(old, 0.0)
+    new = g.Game(c.Course(4))
+    new.runner.distance = 300.0
+    field.update(new, 0.0)
+    wanted = sorted(tr.coins_in_view(new), key=lambda coin: coin.distance)
+    shown = sorted(field.children, key=lambda node: -node.translation[2])
+    assert len(shown) == len(wanted)
+    for node, coin in zip(shown, wanted, strict=True):
+        assert -node.translation[2] == pytest.approx(coin.distance, abs=1e-3)
+        assert node.translation[0] == pytest.approx(
+            new.course.lane_x(coin.lane, coin.distance), abs=1e-3)

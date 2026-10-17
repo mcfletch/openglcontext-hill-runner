@@ -1,6 +1,6 @@
 """The runner's body: how far it has run, how fast, and where it is in the air.
 
-It moves down the hill by itself and never slows. The player's four commands,
+It moves down the hill by itself and never slows. The player's commands,
 :meth:`Runner.hop`, :meth:`Runner.jump` and :meth:`Runner.slide`, change the
 lane, the height and the body's shape. No GL, no clock: the caller says how much
 time has passed.
@@ -47,6 +47,7 @@ class Runner:
     # -- state --
     @property
     def grounded(self) -> bool:
+        """Whether the feet are on the ground."""
         return self.height <= 0.0 and self._rise <= 0.0
 
     @property
@@ -56,16 +57,13 @@ class Runner:
 
     @property
     def sliding(self) -> bool:
+        """Whether the body is low in a slide."""
         return self._slide_left > 0.0
 
     @property
     def x(self) -> float:
         """Across the hill, where the body is."""
         return self.course.lane_x(self.lane, self.distance) + self.offset
-
-    @property
-    def hopping(self) -> bool:
-        return abs(self.offset) > 1e-6
 
     @property
     def band(self) -> tuple[float, float]:
@@ -126,6 +124,7 @@ class Runner:
 
     # -- time --
     def advance(self, dt: float) -> None:
+        """Run for ``dt`` seconds: faster, further down the hill, and through the air or a hop."""
         self.speed = min(MAX_SPEED, self.speed + ACCELERATION * dt)
         self.distance += self.speed * dt
         lanes = self.course.lanes_at(self.distance)

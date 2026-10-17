@@ -31,10 +31,11 @@ from OpenGLContext.ui import dialogs, settings
 
 from openglcontext_hill_runner import course as c
 from openglcontext_hill_runner import credits, menu, woods
+from openglcontext_hill_runner.chase import CAMERA_BACK, CAMERA_UP
 from openglcontext_hill_runner.hud import RunHud
 from openglcontext_hill_runner.landscape import Landscape
 from openglcontext_hill_runner.look import make_look
-from openglcontext_hill_runner.runner import HOP_TIME, MAX_SPEED
+from openglcontext_hill_runner.runner import MAX_SPEED
 from openglcontext_hill_runner.scenery import HillField
 from openglcontext_hill_runner.session import Frame, Session
 from openglcontext_hill_runner.sound import Sounds
@@ -44,17 +45,16 @@ from openglcontext_hill_runner.treasure import TreasureField
 #: How far ahead of the camera the hill is made, in metres.
 REACH = 260.0
 FOV = math.radians(62.0)
-#: The camera's offset from the point it looks at, and how far it backs off at full speed.
-CAMERA_OFFSET = (0.0, 1.85, 5.1)
+#: How much further the camera backs off at full speed, as a fraction of its distance.
 CAMERA_PULL_BACK = 0.08
 #: The sun's direction: from behind the runner and a little to the left, so shadows fall ahead
 #: along the trails, and a coin's shadow lies on its own trail.
 SUN = (-0.18, -0.75, -0.62)
-#: How much of the hill's slope the runner leans into, and how far it leans into a hop.
-SLOPE_LEAN = 0.6
-HOP_LEAN = 0.35
 #: Cover stays this far from the middle of the nearest path, which keeps it off the gaps too.
 TRAIL_CLEAR = 0.55
+#: The whole control scheme: each key and the method of the window that answers it.
+CONTROLS = {'<left>': '_hop_left', '<right>': '_hop_right', '<up>': '_jump',
+            '<down>': '_slide', '<escape>': '_pause'}
 SKY = [(0.26, 0.48, 0.84), (0.55, 0.74, 0.94), (0.84, 0.90, 0.93)]
 HAZE = (0.80, 0.87, 0.92)
 
@@ -90,6 +90,7 @@ class RunnerContext(Context):
 
     # -- building ----------------------------------------------------------
     def OnInit(self) -> None:
+        """Load the character and the materials, build the scene and start the first run."""
         self.look = make_look(photos=self.photos)
         path = resources.files('openglcontext_hill_runner') / 'assets' / 'runner.glb'
         self.model = CharacterModel.load(str(path))
@@ -99,35 +100,33 @@ class RunnerContext(Context):
         self.treasure = TreasureField(self.look)
         self.woods: woods.Woods | None = None
         self.cover: GroundCover | None = None
-        self.camera = FollowCamera(self.platform, offset=CAMERA_OFFSET,
+        self.camera = FollowCamera(self.platform, offset=(0.0, CAMERA_UP, CAMERA_BACK),
                                    pull_back=CAMERA_PULL_BACK, pull_back_speed=MAX_SPEED)
         self.platform.setFrustum(fieldOfView=FOV, near=0.3, far=REACH + 150.0)
         self._build_runner_node()
         self.terrain: GeneratedTiles | None = None
         self.sg = sceneGraph(children=[])
         self._start(self.seed)
-        for name, command in (('<left>', self._hop_left), ('<right>', self._hop_right),
-                              ('<up>', self._jump), ('<down>', self._slide),
-                              ('<escape>', self._pause)):
-            self.addEventHandler('keyboard', name=name, state=1, function=command)
+        for key, method in CONTROLS.items():
+            self.addEventHandler('keyboard', name=key, state=1, function=getattr(self, method))
         self.mixer.start_music()
         print('\n'.join(credits.startup(self.woods is not None, self.photos)))
 
     def _plant_the_forest(self, land: Landscape) -> None:
         """Trees and ground cover from the forest demo's art, where it is installed, for ``land``."""
         art = woods.forest_art() if self.forest else None
-        if self.cover is not None:
-            self.cover.shutdown()
-        self.cover = None
         if art is None:
-            self.woods = None
             return
         if self.woods is None:
             self.woods = woods.Woods(woods.species(art), land)
         else:
             self.woods.relocate(land)
-        self.cover = GroundCover(HillField(land), read_cover_manifest(art),
-                                 mask=_cover_where(land), shade=_in_the_sun, background=True)
+        ground = HillField(land)
+        if self.cover is None:
+            self.cover = GroundCover(ground, read_cover_manifest(art), mask=_cover_where(land),
+                                     shade=_in_the_sun, background=True)
+        else:
+            self.cover.relocate(ground, mask=_cover_where(land), shade=_in_the_sun)
 
     def _build_runner_node(self) -> None:
         """The runner: placed, tipped to the slope, leaned into hops, turned to face down the hill."""
@@ -146,15 +145,13 @@ class RunnerContext(Context):
             course = c.Course(seed)
             self.land = Landscape(course)
             self._plant_the_forest(self.land)
-        self.session = Session(course, demo=self.demo)
+        self.session = Session(self.land, demo=self.demo)
         self.terrain = GeneratedTiles(
             HillTiles(self.land, self.look, trees=self.woods is None), reach=REACH, fovy=FOV)
         self._clip = ''
         self._game_over_shown = False
-        self._last_x = self.session.game.runner.x
         self._last = systemTime()
-        frame = self.session.step(0.0)
-        self._look_through(frame, 0.0)
+        self._look_through(self.session.step(0.0))
         self.terrain.prime(self._eye(), self._viewport_height())
         self._fill_the_cover()
         self.sg.children = [
@@ -233,14 +230,14 @@ class RunnerContext(Context):
 
     # -- the frame ------------------------------------------------------------
     def OnIdle(self, *arguments: Any) -> Any:  # noqa: ARG002 OpenGLContext OnIdle callback signature
+        """Run the game for the time since the last frame, unless a screen is up, and show it."""
         now = systemTime()
-        dt = min(now - self._last, 0.05)
+        elapsed = now - self._last
         self._last = now
         paused = self.overlays.visible
         self.mixer.pause(paused)
         if not paused:
-            frame = self.session.step(dt)
-            self._apply(frame, dt, now)
+            self._apply(self.session.step(elapsed), now)
             if self.session.over and not self._game_over_shown:
                 self._game_over_shown = True
                 self.pushOverlay(menu.game_over_panel(
@@ -248,18 +245,18 @@ class RunnerContext(Context):
         self.triggerRedraw(1)
         return 1
 
-    def _apply(self, frame: Frame, dt: float, now: float) -> None:
+    def _apply(self, frame: Frame, now: float) -> None:
         game = self.session.game
         self.mixer.play(frame.sounds)
         pose = frame.pose
         self.model.play(pose.clip, loop=pose.loop, fade=pose.fade, speed=pose.speed,
                         restart=pose.clip != self._clip)
         self._clip = pose.clip
-        self.model.update(dt)
-        self._place_runner(dt)
+        self.model.update(frame.dt)
+        self._place_runner(frame)
         self.treasure.update(game, now)
         self.hud.update(game)
-        self._look_through(frame, dt)
+        self._look_through(frame)
         self._stream()
 
     def _stream(self) -> None:
@@ -274,29 +271,20 @@ class RunnerContext(Context):
             if self.cover is not None:
                 self.cover.update(eye)
 
-    def _place_runner(self, dt: float) -> None:
-        runner = self.session.game.runner
-        d = runner.distance
-        self.runner_node.translation = (
-            runner.x, float(self.land.height(runner.x, d)) + runner.height, -d)
-        self._yaw.rotation = (0.0, 1.0, 0.0, -self.session.chase.heading())
-        fall = (float(c.ground_height(d - 1.0)) - float(c.ground_height(d + 1.0))) / 2.0
-        self._pitch.rotation = (1.0, 0.0, 0.0, -math.atan(fall) * SLOPE_LEAN)
-        sideways = (runner.x - self._last_x) / dt if dt > 0 else 0.0
-        self._last_x = runner.x
-        across = c.LANE_WIDTH / HOP_TIME
-        self._lean.rotation = (0.0, 0.0, 1.0, -HOP_LEAN * max(-1.0, min(1.0, sideways / across)))
+    def _place_runner(self, frame: Frame) -> None:
+        self.runner_node.translation = frame.position
+        self._yaw.rotation = (0.0, 1.0, 0.0, -frame.heading)
+        self._pitch.rotation = (1.0, 0.0, 0.0, frame.pitch)
+        self._lean.rotation = (0.0, 0.0, 1.0, frame.lean)
 
-    def _look_through(self, frame: Frame, dt: float) -> None:
-        turn = self.session.chase.heading()
-        back = CAMERA_OFFSET[2]
-        self.camera.offset = np.array([-back * math.sin(turn), CAMERA_OFFSET[1],
-                                       back * math.cos(turn)])
+    def _look_through(self, frame: Frame) -> None:
+        self.camera.offset = np.array(frame.camera_offset)
         self.camera.target(frame.target)
-        self.camera.advance(dt, self.session.game.runner.speed)
+        self.camera.advance(frame.dt, self.session.game.runner.speed)
         self.camera.apply()
 
     def OnQuit(self, event: Any = None) -> None:
+        """Stop the music and the workers, then close the window."""
         self.mixer.stop()
         if self.cover is not None:
             self.cover.shutdown()

@@ -31,16 +31,18 @@ CLEARING = 0.9
 #: How much wider than its card a tree's crown reaches, counting the boughs that droop.
 CROWN_REACH = 1.15
 FARTHEST = 46.0
-#: Trees are this many metres apart at least: each keeps a disc to itself that
-#: grows with its height, so a tall tree has room for its crown.
-SPACING = 4.5
+#: The least that two trees stand apart, in metres. Each keeps a disc to itself that grows with
+#: its height and shrinks where the country is thick, so a tall tree has room for its crown.
+SPACING = 2.8
 CANDIDATES = 240
 #: The densest a country packs trees, as a multiple of a forest's.
 DENSITY_MAX = 2.2
-#: A window of the hill reaches this far behind the runner and ahead of it, and
-#: plants the next once the runner is within ``AHEAD / 2`` of its end.
+#: A window of the hill reaches this far behind the runner and ahead of it. The next window is
+#: worked out once the runner is within ``PREPARE_BEFORE_END`` of the end of this one, and swapped
+#: in when it is ready.
 BEHIND = 128.0
 AHEAD = 1600.0
+PREPARE_BEFORE_END = 0.75 * AHEAD
 
 #: What grows, as the forest demo's art names it: ``(name, mesh, trunk keys, leaf keys,
 #: trunk texture, leaf texture, card, card width, root sink as a fraction of height,
@@ -59,13 +61,6 @@ KINDS: tuple[tuple[Any, ...], ...] = (
 CONIFER = 0.6
 CONIFERS = (0, 1)
 MAPLES = (2, 3, 4, 5)
-
-#: Who made the models, for the credit the demo prints when it uses them.
-CREDITS = (
-    'Fir tree by Georgeous (https://skfb.ly/pA8TG), CC-BY 4.0',
-    'Noel_Pine_Tree by 3D Error 404 (https://skfb.ly/6XHoJ), CC-BY 4.0',
-    'Maple trees pack by LOLIPOP (https://skfb.ly/p9tGx), CC-BY 4.0',
-)
 
 
 def _art_directory() -> str:
@@ -103,7 +98,7 @@ class Trees(NamedTuple):
 def chunk_trees(land: Landscape, index: int) -> Trees:
     """The trees of chunk ``index``: thick in dense forest, thin in meadow and rock, none on
     sand, standing on the land beside the paths and clear of every one."""
-    rng = np.random.default_rng([index, 17])
+    rng = c.stream(land.course.seed, 'woods', index)
     count = 2 * CANDIDATES
     d = index * c.CHUNK_LENGTH + rng.uniform(0.0, c.CHUNK_LENGTH, count)
     lanes = land.course.lane_positions(d)
@@ -140,9 +135,9 @@ def window_for(distance: float) -> tuple[int, int]:
 class Woods(Group):
     """One field of trees over the stretch of hill around the runner.
 
-    The next stretch is worked out on a worker thread once the runner is through three
-    quarters of this one, and swapped into the same field when it is ready, so the models and
-    textures are made once and no frame waits for a table of trees.
+    The next stretch is worked out on a worker thread once the runner is within
+    ``PREPARE_BEFORE_END`` of the end of this one, and swapped into the same field when it is
+    ready, so the models and textures are made once and no frame waits for a table of trees.
     """
 
     def __init__(self, kinds: list[TreeSpecies], land: Landscape) -> None:
@@ -155,10 +150,8 @@ class Woods(Group):
         self._pending: Future[tuple[tuple[int, int], tuple[np.ndarray, ...]]] | None = None
 
     def update(self, eye: Any, facing: Any = (0.0, 0.0, -1.0), view: Any = None) -> None:
-        """Plant the next stretch when the runner is near the end of this one; choose what is drawn.
-
-        With the GL context current, since the stretch left behind is released here.
-        """
+        """Start on the next stretch when the runner nears the end of this one, swap it in when it
+        is ready, and choose what is drawn for the camera at ``eye``."""
         distance = -float(eye[2])
         if self.field is None:
             self._plant(*self._table(self.land, window_for(distance)))
@@ -173,7 +166,7 @@ class Woods(Group):
 
     def _swap_at(self) -> float:
         first, count = self.window
-        return (first + count) * c.CHUNK_LENGTH - AHEAD / 4 * 3
+        return (first + count) * c.CHUNK_LENGTH - PREPARE_BEFORE_END
 
     def wait(self, timeout: float = 10.0) -> None:
         """Wait for the next stretch to be worked out; the next :meth:`update` swaps it in."""
@@ -202,10 +195,6 @@ class Woods(Group):
         yaws = np.concatenate([t.yaws for t in tables])
         heights = np.concatenate([t.heights for t in tables])
         kinds = np.concatenate([t.kinds for t in tables])
-        if not len(positions):
-            # A window of nothing but sand: a field needs a tree, and this one is far underground.
-            positions, yaws = np.array([[0.0, -9999.0, 0.0]], 'f'), np.zeros(1, 'f')
-            heights, kinds = np.array([5.0], 'f'), np.zeros(1, int)
         return window, (positions, yaws, heights, kinds)
 
     def _plant(self, window: tuple[int, int], table: tuple[np.ndarray, ...]) -> None:

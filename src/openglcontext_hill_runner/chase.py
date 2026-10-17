@@ -13,6 +13,10 @@ SWAY_RATE = 7.0
 JUMP_LIFT = 0.5
 #: How far ahead the trail's heading is measured, in metres.
 HEADING_AHEAD = 6.0
+#: The camera stands this far behind the point it looks at along the runner's path, and this
+#: far above it, in metres: above head height, with the runner's feet at the bottom of the frame.
+CAMERA_BACK = 5.1
+CAMERA_UP = 1.85
 
 
 class Chase:
@@ -48,7 +52,8 @@ class Chase:
         return math.atan((course.lane_x(runner.lane, d + HEADING_AHEAD)
                           - course.lane_x(runner.lane, d)) / HEADING_AHEAD)
 
-    def reset(self) -> None:
-        """Take the view straight to the runner, as at the start of a run."""
-        self._x = self.runner.x
-        self._distance = self.runner.distance
+    def camera_offset(self) -> tuple[float, float, float]:
+        """Where the camera stands, from the point it looks at: behind it along the runner's
+        path."""
+        turn = self.heading()
+        return (-CAMERA_BACK * math.sin(turn), CAMERA_UP, CAMERA_BACK * math.cos(turn))

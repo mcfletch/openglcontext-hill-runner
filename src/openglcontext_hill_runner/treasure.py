@@ -103,8 +103,11 @@ class TreasureField(Group):
     def update(self, game: g.Game, now: float) -> None:
         """Show the coins in view as of ``now`` seconds, and let go of the rest."""
         wanted = {coin.ident: coin for coin in coins_in_view(game)}
-        changed = wanted.keys() != self._nodes.keys()
-        for ident in self._nodes.keys() - wanted.keys():
+        # A coin of another course can have the name a coin of this one has, so what is held
+        # is compared by what the coin is and not by its name.
+        stale = [ident for ident, coin in self._coins.items() if wanted.get(ident) != coin]
+        changed = bool(stale) or wanted.keys() != self._nodes.keys()
+        for ident in stale:
             del self._nodes[ident]
             del self._coins[ident]
         for ident, coin in wanted.items():

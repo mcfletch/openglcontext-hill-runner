@@ -3,6 +3,8 @@ import enum
 
 
 class Event(enum.Enum):
+    """What happens during a run."""
+
     HOP = 'hop'
     #: A hop was asked for and a hedge was in the way.
     BLOCKED = 'blocked'

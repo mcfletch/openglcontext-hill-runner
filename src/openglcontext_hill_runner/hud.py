@@ -16,6 +16,7 @@ class RunHud:
         self.layer = HUDLayer(children=[self.group, self.meters])
 
     def update(self, game: Game) -> None:
+        """Set the readouts from the game."""
         self.coins.value = str(game.coins)
         self.score.value = str(game.points)
         self.meters.value = '%d m' % game.meters

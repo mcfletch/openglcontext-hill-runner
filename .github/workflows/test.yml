@@ -71,8 +71,7 @@ jobs:
             "OpenGLContext @ git+https://github.com/mcfletch/openglcontext@${ENGINE_BRANCH}"
           python -m pip install --pre -e ".[dev]"
 
-      # Gates rather than good intentions: both are configured in pyproject.toml
-      # and a merge waits on them.
+      # Both are configured in pyproject.toml and a merge waits on them.
       - name: ruff
         run: ruff check .
 

@@ -17,6 +17,7 @@ Escape opens the menu.
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """The command line's options."""
     parser = argparse.ArgumentParser(description="An endless downhill runner for OpenGLContext")
     parser.add_argument("--seed", type=int, default=1, help="which hill to run")
     parser.add_argument("--demo", action="store_true", help="let the autopilot run")
@@ -32,6 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Any = None) -> None:
+    """Play the game, with the options of ``argv`` (the command line by default)."""
     args = build_parser().parse_args(argv)
     RunnerContext.seed = args.seed
     RunnerContext.demo = args.demo

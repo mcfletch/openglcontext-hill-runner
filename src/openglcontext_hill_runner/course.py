@@ -11,10 +11,13 @@ one, in any order, and a run can be replayed from its seed.
 """
 import enum
 import math
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
+from OpenGLContext.noise import smoothstep
 
 # -- the hill ---------------------------------------------------------------
 
@@ -67,12 +70,33 @@ FORK_QUIET_BEFORE_END = 30.0
 FORK_QUIET_AFTER_END = 34.0
 #: A hop reaches this far across, in metres; paths drawn further apart cannot be hopped between.
 HOP_REACH = 1.6 * LANE_WIDTH
-FORK_LIMIT = 600
+#: Forks and countries are worked out ahead for this many, which is further than anyone runs.
+FORK_LIMIT = 3000
+#: Chunks the course holds at once; the rest are made again when asked for.
+CHUNKS_KEPT = 256
 
 
-def ground_height(distance: float) -> float:
-    """Height of the paths, in metres, at ``distance`` down the hill."""
-    return -SLOPE * distance + SWELL * math.sin(distance / SWELL_LENGTH)
+def ground_height(distance: Any) -> Any:
+    """Height of the paths, in metres, at ``distance`` down the hill; a number or an array."""
+    d = np.asarray(distance, dtype=np.float64)
+    height = -SLOPE * d + SWELL * np.sin(d / SWELL_LENGTH)
+    return float(height) if height.ndim == 0 else height
+
+
+def smooth(t: Any) -> np.ndarray:
+    """0 below 0, 1 above 1, and between them ``3t^2 - 2t^3``: level at both ends."""
+    return np.asarray(smoothstep(np.clip(t, 0.0, 1.0)))
+
+
+#: Each kind of randomness draws from a stream of its own, so that two of them never share
+#: numbers however their other keys happen to fall.
+STREAMS = {name: number for number, name in enumerate(
+    ('chunk', 'forks', 'wander', 'zones', 'branch', 'obstacle', 'trees', 'rocks', 'woods'), 1)}
+
+
+def stream(seed: int, name: str, *index: int) -> np.random.Generator:
+    """The random numbers of one kind (see :data:`STREAMS`) for a seed, at an index of it."""
+    return np.random.default_rng([int(seed) & 0xFFFFFFFF, STREAMS[name], *index])
 
 
 def chunk_index(distance: float) -> int:
@@ -105,7 +129,6 @@ COIN_HALF_HEIGHT = 0.25
 #: the runner coming up behind sees the obstacle and not the coin.
 COIN_CLEAR_BEFORE = 8.0
 COIN_CLEAR_AFTER = 1.5
-#: How far past a low obstacle a jewel hangs, where a runner who jumped it is still rising or falling.
 
 
 class Kind(enum.Enum):
@@ -138,6 +161,8 @@ OBSTACLE_HALF_WIDTH = 0.3
 
 @dataclass(frozen=True)
 class Obstacle:
+    """Something across one or two paths that the runner has to get past."""
+
     kind: Kind
     lane: int
     #: Where the obstacle's middle lies, in metres down the hill.
@@ -147,6 +172,7 @@ class Obstacle:
 
     @property
     def depth(self) -> float:
+        """How far the obstacle reaches along the trail, in metres."""
         return DEPTH[self.kind]
 
     @property
@@ -157,6 +183,8 @@ class Obstacle:
 
 @dataclass(frozen=True)
 class Coin:
+    """Treasure hanging over a path: a coin, or a jewel that is worth more."""
+
     #: ``(chunk, number)``: a name the game keeps once the coin is taken.
     ident: tuple[int, int]
     lane: int
@@ -186,14 +214,21 @@ class Fork:
     #: +1 for the right of the trail, -1 for the left.
     side: int
 
+    @staticmethod
+    def lanes_of(side: int) -> tuple[int, int]:
+        """The paths a fork adds on ``side``."""
+        return (LANE_COUNT, LANE_COUNT + 1) if side > 0 else (-1, -2)
+
     @property
     def lanes(self) -> tuple[int, int]:
         """The paths it adds."""
-        return (LANE_COUNT, LANE_COUNT + 1) if self.side > 0 else (-1, -2)
+        return self.lanes_of(self.side)
 
 
 @dataclass(frozen=True)
 class Chunk:
+    """One chunk of the hill: what stands and what hangs in it."""
+
     index: int
     start: float
     obstacles: tuple[Obstacle, ...]
@@ -217,15 +252,11 @@ DIVIDER_FROM = 4.0
 DIVIDER_TO = 28.0
 #: Chance that a chunk past the first few is hedged.
 DIVIDER_CHANCE = 0.3
-WALL_CLEARANCE = 0.0
-
-#: The paths a row may wall off. Two neighbouring walls would leave the third
-#: path's only way out through one of them.
-WALLABLE = ({0}, {1}, {2}, {0, 2})
 
 _KIND_WEIGHTS = ((Kind.LOW, 0.4), (Kind.HIGH, 0.3), (Kind.WALL, 0.3))
 #: How likely each kind is to stretch across two paths rather than one.
 _SPAN_CHANCE = {Kind.LOW: 0.4, Kind.HIGH: 0.35, Kind.WALL: 0.25}
+#: How far past a low obstacle a jewel hangs, where a runner who jumped it is still in the air.
 JEWEL_BEYOND = 2.2
 #: Chance that a jewel hangs past a low obstacle, to reward the jump, and that a chunk has a
 #: run of jewels over a path with nothing in it.
@@ -233,8 +264,20 @@ JEWEL_AFTER_LOG = 0.6
 JEWEL_RUN_CHANCE = 0.3
 
 
-def _smooth(t: np.ndarray) -> np.ndarray:
-    return np.asarray(t * t * (3.0 - 2.0 * t))
+class ForkState(NamedTuple):
+    """Where each of a set of distances stands with respect to the forks, as arrays."""
+
+    #: The number of the fork each distance falls in or after.
+    number: np.ndarray
+    start: np.ndarray
+    end: np.ndarray
+    #: +1 or -1: the side the fork's paths are on.
+    side: np.ndarray
+    #: Whether that fork is running at the distance.
+    running: np.ndarray
+    #: How far the fork's paths are drawn from the paths beside them, signed by side; 0 when
+    #: no fork is running.
+    separation: np.ndarray
 
 
 class Course:
@@ -242,9 +285,10 @@ class Course:
 
     def __init__(self, seed: int = 0) -> None:
         self.seed = int(seed)
-        self._chunks: dict[int, Chunk] = {}
-        rng = np.random.default_rng([self.seed & 0xFFFFFFFF, 90210])
-        self._phase = rng.uniform(0.0, 2.0 * math.pi, 2)
+        self._chunks: OrderedDict[int, Chunk] = OrderedDict()
+        self._lock = threading.Lock()
+        self._phase = stream(self.seed, 'wander').uniform(0.0, 2.0 * math.pi, 2)
+        rng = stream(self.seed, 'forks')
         k = np.arange(FORK_LIMIT)
         self._fork_start = FORK_FIRST + k * FORK_SPACING + rng.uniform(0.0, FORK_JITTER, FORK_LIMIT)
         self._fork_end = self._fork_start + rng.uniform(*FORK_LENGTH, FORK_LIMIT)
@@ -256,27 +300,25 @@ class Course:
         d = np.asarray(distance, dtype=np.float64)
         wave = (np.sin(d / WANDER_WAVELENGTH + self._phase[0])
                 + 0.5 * np.sin(d / (0.43 * WANDER_WAVELENGTH) + self._phase[1]))
-        grown = _smooth(np.clip((d - WANDER_FREE) / WANDER_START, 0.0, 1.0))
+        grown = smooth((d - WANDER_FREE) / WANDER_START)
         return WANDER * grown * wave / 1.5
 
-    def _fork_state(self, distance: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """For each distance: the lateral offset the fork's paths are drawn out by, and which
-        side they are on (0 where no fork is running)."""
+    def fork_state(self, distance: Any) -> ForkState:
+        """Where each distance stands with respect to the forks."""
         d = np.atleast_1d(np.asarray(distance, dtype=np.float64))
         k = np.clip(np.floor((d - FORK_FIRST) / FORK_SPACING).astype(int), 0, FORK_LIMIT - 1)
         start, end, side = self._fork_start[k], self._fork_end[k], self._fork_side[k]
-        active = (d >= start) & (d <= end) & (d >= FORK_FIRST)
-        away = _smooth(np.clip((d - start) / FORK_DIVERGE, 0.0, 1.0)) * _smooth(
-            np.clip((end - d) / FORK_DIVERGE, 0.0, 1.0))
-        return np.where(active, side * FORK_SEPARATION * away, 0.0), np.where(active, side, 0), d
+        running = (d >= start) & (d <= end) & (d >= FORK_FIRST)
+        away = smooth((d - start) / FORK_DIVERGE) * smooth((end - d) / FORK_DIVERGE)
+        return ForkState(k, start, end, side, running,
+                         np.where(running, side * FORK_SEPARATION * away, 0.0))
 
-    def fork_arrays(self, distance: Any) -> tuple[np.ndarray, ...]:
-        """``(index, start, end, side, running)`` of the fork each distance falls in or after,
-        as arrays; ``running`` is whether it is running at that distance."""
-        d = np.atleast_1d(np.asarray(distance, dtype=np.float64))
-        k = np.clip(np.floor((d - FORK_FIRST) / FORK_SPACING).astype(int), 0, FORK_LIMIT - 1)
-        start, end = self._fork_start[k], self._fork_end[k]
-        return k, start, end, self._fork_side[k], (d >= start) & (d <= end) & (d >= FORK_FIRST)
+    def fork_growth(self, distance: Any) -> Any:
+        """How fully grown the paths of the fork at ``distance`` are, from 0 where a fork begins
+        and ends to 1 once the paths are full size; over the :data:`FORK_GROW` metres either end."""
+        state = self.fork_state(distance)
+        d = np.asarray(distance, dtype=np.float64)
+        return smooth((d - state.start) / FORK_GROW) * smooth((state.end - d) / FORK_GROW)
 
     def fork_at(self, distance: float) -> "Fork | None":
         """The fork running at ``distance``, if one is."""
@@ -284,10 +326,11 @@ class Course:
         if distance < FORK_FIRST or not 0 <= k < FORK_LIMIT:
             return None
         if self._fork_start[k] <= distance <= self._fork_end[k]:
-            return self._fork(k)
+            return self.fork(k)
         return None
 
-    def _fork(self, k: int) -> Fork:
+    def fork(self, k: int) -> Fork:
+        """Fork number ``k``."""
         return Fork(k, float(self._fork_start[k]), float(self._fork_end[k]),
                     int(self._fork_side[k]))
 
@@ -295,7 +338,7 @@ class Course:
         """The forks that run at any point of ``[start, end]``."""
         first = max(0, int((start - FORK_FIRST) // FORK_SPACING) - 1)
         last = min(FORK_LIMIT - 1, int((end - FORK_FIRST) // FORK_SPACING) + 1)
-        return [self._fork(k) for k in range(first, last + 1)
+        return [self.fork(k) for k in range(first, last + 1)
                 if self._fork_end[k] >= start and self._fork_start[k] <= end]
 
     def lanes_at(self, distance: float) -> tuple[int, ...]:
@@ -307,15 +350,18 @@ class Course:
 
     def lane_x(self, lane: int, distance: float) -> float:
         """Across the hill, where path ``lane`` lies at ``distance``."""
-        sep, side, _ = self._fork_state(distance)
-        extra = float(sep[0]) if side[0] != 0 and lane in (
-            (LANE_COUNT, LANE_COUNT + 1) if side[0] > 0 else (-1, -2)) else 0.0
+        state = self.fork_state(distance)
+        extra = 0.0
+        if state.running[0] and lane in Fork.lanes_of(int(state.side[0])):
+            extra = float(state.separation[0])
         return float(self.centre(distance)) + lane_offset(lane) + extra
 
     def lane_positions(self, distance: "np.ndarray") -> np.ndarray:
         """Where every path of :data:`ALL_LANES` lies at each distance, ``inf`` where it does
         not exist: an array of shape ``(len(ALL_LANES), N)``."""
-        sep, side, d = self._fork_state(distance)
+        state = self.fork_state(distance)
+        sep, side = state.separation, np.where(state.running, state.side, 0)
+        d = np.atleast_1d(np.asarray(distance, dtype=np.float64))
         centre = np.asarray(self.centre(d)).reshape(-1)
         out = np.empty((len(ALL_LANES), len(d)))
         for row, lane in enumerate(ALL_LANES):
@@ -349,9 +395,22 @@ class Course:
 
     def chunk(self, index: int) -> Chunk:
         """Chunk ``index``; the same one every time it is asked for."""
-        if index not in self._chunks:
-            self._chunks[index] = self._make(index)
-        return self._chunks[index]
+        with self._lock:
+            held = self._chunks.get(index)
+            if held is not None:
+                self._chunks.move_to_end(index)
+                return held
+        made = self._make(index)
+        with self._lock:
+            self._chunks[index] = made
+            while len(self._chunks) > CHUNKS_KEPT:
+                self._chunks.popitem(last=False)
+        return made
+
+    @property
+    def chunks_held(self) -> int:
+        """How many chunks the course is holding."""
+        return len(self._chunks)
 
     def obstacles_between(self, start: float, end: float) -> list[Obstacle]:
         """The obstacles whose middles lie in ``[start, end)``, nearest first."""
@@ -367,7 +426,7 @@ class Course:
 
     # -- generation --
     def _make(self, index: int) -> Chunk:
-        rng = np.random.default_rng([self.seed & 0xFFFFFFFF, index])
+        rng = stream(self.seed, 'chunk', index)
         start = index * CHUNK_LENGTH
         level = min(1.0, index / HARDEST_AT_CHUNK)
         hedged = index >= 3 and rng.random() < DIVIDER_CHANCE

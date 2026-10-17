@@ -35,6 +35,7 @@ class Sounds:
                    / (name + '.ogg'))
 
     def play(self, sounds: Iterable[Sound]) -> None:
+        """Play each of ``sounds`` once."""
         if self.engine is None:
             return
         for sound in sounds:
@@ -52,6 +53,7 @@ class Sounds:
             self.engine.muffle = PAUSE_MUFFLE if paused else 0.0
 
     def stop(self) -> None:
+        """Stop the music."""
         if self._music is not None:
             self._music.stop()
             self._music = None

@@ -28,7 +28,8 @@ BLEND = 140.0
 FORK_PENALTY = 2.0
 #: Metres across which a fork's country gives way to the trail's.
 BRANCH_BLEND = 6.0
-ZONE_LIMIT = 240
+#: Countries are worked out ahead for this many, which is further than anyone runs.
+ZONE_LIMIT = 6000
 FIRST_ZONE = 600.0
 ZONE_LENGTH = (320.0, 640.0)
 
@@ -44,6 +45,8 @@ PATCH_METRES = 3.5
 
 
 class Biome(enum.Enum):
+    """The countries the hill runs through."""
+
     FOREST = 0
     ROCKS = 1
     SAND = 2
@@ -101,21 +104,10 @@ class Zone:
     length: float
 
 
-def _smooth(t: np.ndarray) -> np.ndarray:
-    t = np.clip(t, 0.0, 1.0)
-    return np.asarray(t * t * (3.0 - 2.0 * t))
-
-
 def _mix(values: "list[float]", weights: np.ndarray) -> np.ndarray:
     """A setting of each country, blended by how much of each country is at each point."""
     mixed: np.ndarray = np.tensordot(np.array(values), weights, axes=(0, 0))
     return mixed
-
-
-def ground(distance: "np.ndarray | float") -> np.ndarray:
-    """The slope of the hill, with its long swell, at each ``distance``."""
-    d = np.asarray(distance, dtype=np.float64)
-    return np.asarray(-c.SLOPE * d + c.SWELL * np.sin(d / c.SWELL_LENGTH))
 
 
 class Landscape:
@@ -123,7 +115,7 @@ class Landscape:
 
     def __init__(self, course: c.Course) -> None:
         self.course = course
-        rng = np.random.default_rng([course.seed & 0xFFFFFFFF, 31337])
+        rng = c.stream(course.seed, 'zones')
         sequence = list(_BIOMES)
         while len(sequence) < ZONE_LIMIT:
             nxt = [_BIOMES[int(i)] for i in rng.permutation(len(_BIOMES))]
@@ -138,12 +130,12 @@ class Landscape:
         self._starts = np.concatenate([starts[:ZONE_LIMIT], [np.inf, np.inf, np.inf]])
         self._zone_biome = np.array([b.value for b in sequence[:ZONE_LIMIT]] + [0, 0, 0])
         # A fork's branch is another country than the trail's where it starts.
-        self._branch = np.empty(c.FORK_LIMIT, dtype=int)
-        for k in range(c.FORK_LIMIT):
-            middle = (course._fork_start[k] + course._fork_end[k]) / 2
-            trunk = int(self._zone_biome[self._zone_index(np.array([middle]))[0]])
-            choices = [b.value for b in _BIOMES if b.value != trunk]
-            self._branch[k] = choices[int(rng.integers(0, len(choices)))]
+        forks = [course.fork(k) for k in range(c.FORK_LIMIT)]
+        middles = np.array([(f.start + f.end) / 2 for f in forks])
+        trunk = self._zone_biome[self._zone_index(middles)]
+        # The nth of the other countries, in order: n itself below the trail's, n + 1 above.
+        pick = c.stream(course.seed, 'branch').integers(0, len(_BIOMES) - 1, c.FORK_LIMIT)
+        self._branch = pick + (pick >= trunk)
 
     # -- where the paths are --
     def trail_gap(self, x: Any, distance: Any) -> np.ndarray:
@@ -156,8 +148,7 @@ class Landscape:
         gap = np.abs(positions - x.ravel()[None, :])
         # A fork's paths count for more as they grow in, so the land does not step where they
         # begin and end: they are that much further away until they are full size.
-        _, start, end, _, _ = self.course.fork_arrays(df)
-        grown = _smooth((df - start) / c.FORK_GROW) * _smooth((end - df) / c.FORK_GROW)
+        grown = self.course.fork_growth(df)
         for row, lane in enumerate(c.ALL_LANES):
             if lane not in c.TRUNK:
                 gap[row] += (1.0 - grown) * FORK_PENALTY
@@ -175,11 +166,11 @@ class Landscape:
         columns = np.arange(len(d))
 
         def edge(k: np.ndarray) -> np.ndarray:
-            return _smooth((d - (self._starts[k] - half)) / BLEND)
+            return c.smooth((d - (self._starts[k] - half)) / BLEND)
 
         for offset in (-1, 0, 1):
             k = idx + offset
-            valid = k >= 0
+            valid = (k >= 0) & (k < ZONE_LIMIT)
             kk = np.clip(k, 0, ZONE_LIMIT - 1)
             lower = np.where(kk == 0, 1.0, edge(kk))
             part = np.where(valid, lower - edge(kk + 1), 0.0)
@@ -193,16 +184,16 @@ class Landscape:
                                    np.asarray(distance, dtype=np.float64))
         shape, xf, df = x.shape, x.ravel(), d.ravel()
         out = self._trail_weights(df)
-        k, start, end, side, running = self.course.fork_arrays(df)
+        fork = self.course.fork_state(df)
+        k, start, end, side, running, sep = fork
         if running.any():
-            along = _smooth((df - start) / 60.0) * _smooth((end - df) / 60.0)
-            sep, _, _ = self.course._fork_state(df)
+            along = c.smooth((df - start) / 60.0) * c.smooth((end - df) / 60.0)
             edge_lane = self.course.centre(df) + np.where(side > 0, c.lane_offset(2),
                                                           c.lane_offset(0))
             edge_fork = edge_lane + side * (c.LANE_WIDTH) + sep
             middle = (edge_lane + edge_fork) / 2.0
             toward = np.clip(side * (xf - middle) / BRANCH_BLEND, -1.0, 1.0)
-            f = _smooth(0.5 + 0.5 * toward) * along * running
+            f = c.smooth(0.5 + 0.5 * toward) * along * running
             branch = np.zeros_like(out)
             branch[self._branch[k], np.arange(len(df))] = 1.0
             out = out * (1.0 - f) + branch * f
@@ -212,15 +203,19 @@ class Landscape:
         return _mix(values, self.weights(x, distance))
 
     def tree_density(self, x: Any, distance: Any) -> np.ndarray:
+        """How thick trees grow at each point, as a multiple of a forest's."""
         return self._blend([COUNTRY[b].trees for b in _BIOMES], x, distance)
 
     def cover_density(self, x: Any, distance: Any) -> np.ndarray:
+        """How thick ground cover grows at each point, as a multiple of a forest's."""
         return self._blend([COUNTRY[b].cover for b in _BIOMES], x, distance)
 
     def rock_density(self, x: Any, distance: Any) -> np.ndarray:
+        """How many rocks lie about at each point, as a multiple of a forest's."""
         return self._blend([COUNTRY[b].rocks for b in _BIOMES], x, distance)
 
     def conifer_share(self, x: Any, distance: Any) -> np.ndarray:
+        """The share of the trees at each point that are conifers, from 0 to 1."""
         return self._blend([COUNTRY[b].conifers for b in _BIOMES], x, distance)
 
     def layer_weights(self, x: Any, distance: Any) -> np.ndarray:
@@ -245,7 +240,7 @@ class Landscape:
         hummocks = fbm(x / HUMMOCK_METRES + 11.0, d / HUMMOCK_METRES - 7.0, seed=31,
                        octaves=2) - 0.5
         lumps = fbm(x / LUMP_METRES + 3.0, d / LUMP_METRES + 9.0, seed=32, octaves=2) - 0.5
-        worn = TRAIL_RELIEF + (1.0 - TRAIL_RELIEF) * _smooth((gap - FLAT_HALF_WIDTH / 2) / 2.0)
+        worn = TRAIL_RELIEF + (1.0 - TRAIL_RELIEF) * c.smooth((gap - FLAT_HALF_WIDTH / 2) / 2.0)
         return np.asarray(worn * scale * (HUMMOCK_HEIGHT * hummocks + LUMP_HEIGHT * lumps))
 
     def height(self, x: Any, distance: Any) -> np.ndarray:
@@ -259,16 +254,16 @@ class Landscape:
         bank = _mix([COUNTRY[b].bank for b in _BIOMES], w)
         ramp = _mix([COUNTRY[b].ramp for b in _BIOMES], w)
         scale = _mix([COUNTRY[b].relief for b in _BIOMES], w)
-        away = _smooth((gap - FLAT_HALF_WIDTH) / ramp)
+        away = c.smooth((gap - FLAT_HALF_WIDTH) / ramp)
         form = 0.5 + 0.9 * fbm(xf * 0.021 + 3.0, df * 0.021 - 5.0, seed=21, octaves=4)
-        height: np.ndarray = ground(df) + bank * away * form + self._relief(xf, df, gap, scale)
+        height: np.ndarray = c.ground_height(df) + bank * away * form + self._relief(xf, df, gap, scale)
         height += self._character(xf, df, gap, w)
         return np.asarray(height.reshape(shape))
 
     @staticmethod
     def _character(x: np.ndarray, d: np.ndarray, gap: np.ndarray, w: np.ndarray) -> np.ndarray:
         """What makes sand dunes and rock country, added away from the trails."""
-        apart = _smooth((gap - 1.0) / 2.5)
+        apart = c.smooth((gap - 1.0) / 2.5)
         dunes = (0.55 * np.sin(d / 9.0 + 0.23 * x) + 0.28 * np.sin(d / 3.7 - 0.4 * x + 1.0)
                  + 0.3 * np.sin(x / 7.0 + d / 23.0))
         crags = 6.0 * ridged(x * 0.045 + 7.0, d * 0.045 - 2.0, seed=61, octaves=3)

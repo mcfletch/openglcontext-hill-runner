@@ -13,7 +13,7 @@ Credit is not required; the authors are listed for provenance.
 | coin.ogg | RPG Audio, `handleCoins2.ogg` | Kenney (Kenney Vleugels) | <https://kenney.nl/assets/rpg-audio> | CC0 (License.txt in the pack) | Re-encoded to Ogg Vorbis (q5), metadata stripped |
 | crash.ogg | Impact Sounds, `impactSoft_heavy_001.ogg` | Kenney | <https://kenney.nl/assets/impact-sounds> | CC0 (License.txt in the pack) | Re-encoded to Ogg Vorbis (q5), metadata stripped |
 
-`slide.ogg` is a stone scrape; no CC0 dirt or gravel slide was found.
+`slide.ogg` is a scrape across a cinder block.
 
 `chime.ogg` is synthesized for this project from three sine tones with decaying envelopes, and is released under CC0 1.0.
 

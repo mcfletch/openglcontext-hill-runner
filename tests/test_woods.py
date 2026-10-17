@@ -70,7 +70,7 @@ def test_no_two_trees_stand_in_each_others_crowns(land):
     trees = w.chunk_trees(land, in_country(land, ls.Biome.FOREST))
     p = trees.positions[:, [0, 2]]
     gaps = np.linalg.norm(p[:, None] - p[None], axis=-1) + np.eye(len(p)) * 1e9
-    assert gaps.min() >= w.SPACING * 0.7
+    assert gaps.min() >= w.SPACING
 
 
 def test_conifers_and_maples_both_grow(land):
@@ -168,9 +168,9 @@ def test_the_woods_of_another_landscape_replace_these_in_the_same_field(land):
 
 
 @needs_art
-def test_a_window_with_no_trees_in_it_still_plants_a_field(land, monkeypatch):
+def test_a_window_with_no_trees_in_it_plants_a_field_of_none(land, monkeypatch):
     monkeypatch.setattr(w, 'chunk_trees', lambda land, index: w.Trees(
         np.zeros((0, 3), 'f'), np.zeros(0, 'f'), np.zeros(0, 'f'), np.zeros(0, int)))
     woods = w.Woods(w.species(art), land)
     woods.update((0.0, 2.0, -500.0))
-    assert woods.field is not None and woods.field.tree_count == 1
+    assert woods.field is not None and woods.field.tree_count == 0

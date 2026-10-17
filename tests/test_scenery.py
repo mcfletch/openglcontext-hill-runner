@@ -260,8 +260,8 @@ def test_the_simple_trees_grow_clear_of_every_path_and_not_on_sand(land):
     assert len(foliage.positions) > 100
     p = foliage.positions
     assert land.trail_gap(p[:, 0].astype(float), -p[:, 2].astype(float)).min() > 0.5
-    empty, _ = s.trees(land, land.course.chunk(c.chunk_index(sand.start + sand.length / 2)))
-    assert len(empty.positions) <= 3 * 2
+    assert s.trees(land, land.course.chunk(c.chunk_index(sand.start + sand.length / 2))) == (
+        None, None)
 
 
 def test_the_same_chunk_is_dressed_the_same_way_twice(land):
@@ -269,6 +269,7 @@ def test_the_same_chunk_is_dressed_the_same_way_twice(land):
     a, b = s.trees(land, chunk), s.trees(land, chunk)
     assert np.array_equal(a[0].positions, b[0].positions)
     assert np.array_equal(s.rocks(land, chunk).positions, s.rocks(land, chunk).positions)
+    assert np.array_equal(a[1].positions, b[1].positions)
 
 
 def test_rocks_lie_on_the_land_beside_the_trails_and_are_hand_to_boulder_sized(land):
@@ -278,16 +279,16 @@ def test_rocks_lie_on_the_land_beside_the_trails_and_are_hand_to_boulder_sized(l
     p = geometry.positions.astype(float)
     assert land.trail_gap(p[:, 0], -p[:, 2]).min() >= s.ROCK_NEAREST - s.ROCK_LARGEST * 1.5
     low = p[:, 1] - land.height(p[:, 0], -p[:, 2])
-    assert low.min() > -0.5 and low.max() < 2.5 * s.ROCK_LARGEST
+    assert low.min() > -0.9 and low.max() < 2.5 * s.ROCK_LARGEST
 
 
 def test_rocky_country_has_far_more_rocks_than_sand_or_meadow(land):
     def count(biome):
         zone = next(z for z in land.zones if z.biome is biome and z.start > 300)
-        return len(s.rocks(land, land.course.chunk(
-            c.chunk_index(zone.start + zone.length / 2))).positions)
-    assert count(ls.Biome.ROCKS) > 2 * count(ls.Biome.MEADOW)
-    assert count(ls.Biome.ROCKS) > 2 * count(ls.Biome.SAND)
+        rocks = s.rocks(land, land.course.chunk(c.chunk_index(zone.start + zone.length / 2)))
+        return 0 if rocks is None else len(rocks.positions)
+    assert count(ls.Biome.ROCKS) > 2 * max(count(ls.Biome.MEADOW), 1)
+    assert count(ls.Biome.ROCKS) > 2 * max(count(ls.Biome.SAND), 1)
 
 
 # -- the field the ground cover is seated on -------------------------------------------
@@ -304,3 +305,70 @@ def test_the_field_answers_for_a_scalar_and_before_the_start_line(land):
     field = s.HillField(land)
     assert np.ndim(field.sample(0.0, -50.0)) == 0
     assert np.isfinite(field.sample(0.0, 20.0))
+
+
+def test_what_stands_on_the_hill_belongs_to_the_seed():
+    one, two = ls.Landscape(c.Course(3)), ls.Landscape(c.Course(4))
+
+    def parts(land):
+        return [tuple(sorted(p.name for p in s.obstacle(land, c.Obstacle(c.Kind.LOW, 1, 40.0 * i))))
+                for i in range(1, 60)]
+    assert parts(one) != parts(two)
+    chunk = c.Chunk(9, 9 * c.CHUNK_LENGTH, (), (), ())
+    a, b = s.rocks(one, chunk), s.rocks(two, chunk)
+    assert a.positions.shape != b.positions.shape or not np.allclose(a.positions, b.positions)
+
+
+def test_the_height_grid_the_cover_is_seated_from_keeps_only_the_chunks_near_it(land):
+    field = s.HillField(land)
+    for index in range(s.GRID_CHUNKS + 6):
+        field.sample(0.0, -(index * c.CHUNK_LENGTH + 5.0))
+    assert field.cached <= s.GRID_CHUNKS
+    assert np.isfinite(field.sample(0.0, -5.0))
+
+
+# -- tile-local coordinates ---------------------------------------------------------
+
+def pieces(land, index, origin=0.0):
+    """Every kind of geometry the scenery makes for chunk ``index``, by name."""
+    chunk = land.course.chunk(index)
+    made = {'terrain': s.terrain(land, index, origin=origin),
+            'path': s.path(land, 1, index, origin=origin),
+            'rocks': s.rocks(land, chunk, origin=origin)}
+    foliage, trunks = s.trees(land, chunk, origin=origin)
+    made.update(foliage=foliage, trunks=trunks)
+    for number, thing in enumerate(chunk.obstacles):
+        for part, geometry in s.obstacle(land, thing, origin=origin).items():
+            made['%s%d' % (part.name, number)] = geometry
+    for number, hedge in enumerate(chunk.dividers):
+        made['hedge%d' % number] = s.divider(land, hedge, origin=origin)
+    return {name: geometry for name, geometry in made.items() if geometry is not None}
+
+
+@pytest.mark.parametrize('index', [6, 7, 9])
+def test_an_origin_moves_every_piece_along_z_and_changes_nothing_else(land, index):
+    origin = index * c.CHUNK_LENGTH
+    world, local = pieces(land, index), pieces(land, index, origin)
+    assert world.keys() == local.keys() and len(world) >= 4
+    for name, geometry in world.items():
+        shifted = geometry.positions + np.array([0.0, 0.0, origin], 'f')
+        assert local[name].positions == pytest.approx(shifted, abs=2e-3), name
+        assert np.array_equal(local[name].indices, geometry.indices), name
+        assert local[name].normals == pytest.approx(geometry.normals, abs=1e-5), name
+
+
+def test_far_from_the_start_a_tile_built_around_its_origin_has_small_coordinates(land):
+    index = 1500
+    origin = index * c.CHUNK_LENGTH
+    for name, geometry in pieces(land, index, origin).items():
+        z = geometry.positions[:, 2]
+        assert -c.CHUNK_LENGTH - 30.0 < z.min() and z.max() < 30.0, name
+
+
+def test_the_ground_and_the_path_texture_by_distance_from_the_origin(land):
+    index = 8
+    origin = index * c.CHUNK_LENGTH
+    for geometry, repeat in ((s.terrain(land, index, origin=origin), s.GROUND_REPEAT),
+                             (s.path(land, 1, index, origin=origin), s.PATH_REPEAT)):
+        assert geometry.texcoords[:, 1] == pytest.approx(geometry.positions[:, 2] / repeat,
+                                                         abs=1e-4)

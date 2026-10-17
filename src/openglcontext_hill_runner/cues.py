@@ -2,8 +2,7 @@
 
 The window asks :func:`pose_for` which clip to play each frame, hands
 :func:`sounds_for` the events of the frame, and asks :class:`Footsteps` when a
-foot lands. Keeping these here, apart from the window, is what lets them be
-tested without one.
+foot lands. None of it touches GL, so tests run it without a window.
 """
 from dataclasses import dataclass
 

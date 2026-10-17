@@ -55,16 +55,36 @@ def test_a_generated_tile_is_a_group_of_shapes_with_a_size(generator):
     scene, nbytes = generator.generate(6)
     assert len(shapes_of(scene)) >= 5
     assert nbytes > 50_000
-    assert scene.radius > c.CHUNK_LENGTH / 2
 
 
-def test_everything_in_a_tile_lies_within_its_chunk(generator):
+def test_everything_in_a_tile_lies_within_its_chunk_measured_from_the_tiles_origin(generator):
     scene, _ = generator.generate(10)
-    start = 10 * c.CHUNK_LENGTH
     for node in shapes_of(scene):
         z = node.geometry.positions[:, 2]
-        assert z.min() >= -(start + c.CHUNK_LENGTH) - 3.0
-        assert z.max() <= -start + 3.0
+        assert z.min() >= -c.CHUNK_LENGTH - 3.0
+        assert z.max() <= 3.0
+
+
+def test_a_tile_is_made_around_the_start_of_its_chunk(generator):
+    assert generator.origin(10) == (0.0, 0.0, -10 * c.CHUNK_LENGTH)
+    box = generator.bounds(10)
+    assert box.bounding_sphere()[0][2] == pytest.approx(-10.5 * c.CHUNK_LENGTH)
+
+
+def test_a_tile_far_down_the_hill_keeps_its_vertices_small(generator):
+    scene, _ = generator.generate(2000)
+    for node in shapes_of(scene):
+        assert np.abs(node.geometry.positions[:, 2]).max() < c.CHUNK_LENGTH + 30.0
+
+
+def test_a_tile_placed_at_its_origin_lies_where_the_land_does(generator, land):
+    tileset = GeneratedTileset(generator, reach=200.0)
+    tileset.ensure(camera_at(10.5 * c.CHUNK_LENGTH))
+    tile = next(t for t in tileset.root.children if t.content_key == 10)
+    scene, _ = generator.generate(10)
+    ground = shapes_of(scene)[0].geometry.positions.astype(float)
+    world = ground + tile.world_transform[:3, 3]
+    assert np.abs(world[:, 1] - land.height(world[:, 0], -world[:, 2])).max() < 0.02
 
 
 def test_the_ground_and_paths_do_not_cast_shadows_and_the_obstacles_do(generator):
@@ -102,9 +122,10 @@ def test_the_overlay_is_blended_and_lies_a_hair_above_the_ground(land, look):
                    if n.geometry.colors is not None and len(n.geometry.colors)
                    and n.geometry.colors[:, 3].min() < 1.0)
     assert overlay.appearance.alphaMode == 'BLEND'
-    ground = s.terrain(land, index)
+    origin = index * c.CHUNK_LENGTH
+    ground = s.terrain(land, index, origin)
     p = overlay.geometry.positions.astype(float)
-    lift = p[:, 1] - land.height(p[:, 0], -p[:, 2])
+    lift = p[:, 1] - land.height(p[:, 0], origin - p[:, 2])
     assert lift.min() > 0.0
     assert len(p) < len(ground.positions)
 

@@ -21,6 +21,8 @@ FEET_FORGIVENESS = 0.08
 
 
 class State(enum.Enum):
+    """Whether the run is going or has ended."""
+
     RUNNING = 'running'
     CRASHED = 'crashed'
 
@@ -43,9 +45,11 @@ class Game:
 
     @property
     def meters(self) -> int:
+        """Whole metres run."""
         return int(self.runner.distance)
 
     def taken(self, coin: c.Coin) -> bool:
+        """Whether the runner has taken ``coin``."""
         return coin.ident in self._taken
 
     def advance(self, dt: float) -> list[Event]:

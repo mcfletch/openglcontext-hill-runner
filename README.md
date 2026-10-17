@@ -42,7 +42,7 @@ trail carries its runner onto the nearest path of it.
 
 | Feature | From |
 | --- | --- |
-| The hill, one tile for each 64 m, made as the runner nears it | `GeneratedTiles`, `OpenGLContext.loaders.tiles3d.generated` |
+| The hill, one tile for each 72 m, made as the runner nears it | `GeneratedTiles`, `OpenGLContext.loaders.tiles3d.generated` |
 | The runner, with `Sprint_Loop`, `Jog_Fwd_Loop`, `Jump_Start`, `Jump_Loop`, `Slide` and `Death01` | `OpenGLContext.character.CharacterModel` |
 | Sun with cascaded shadow maps, PBR materials, fog | `DirectionalLight`, the PBR pass, `Fog` |
 | Ground and trail photographs (CC0) | `OpenGLContext.loaders.cc0`, with procedural `OpenGLContext.scenegraph.surfaces` as the fallback |

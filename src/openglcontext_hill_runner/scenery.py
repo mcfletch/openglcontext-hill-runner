@@ -1,32 +1,37 @@
 """The hill as meshes: ground, trails, obstacles, hedges, rocks and trees. No GL.
 
 Every function takes the :class:`~openglcontext_hill_runner.landscape.Landscape` it dresses
-and returns :class:`~OpenGLContext.scenegraph.surfaces.Geometry` in world coordinates (the
-hill runs along -Z, so a point at distance ``d`` has ``z = -d``), ready for the tile
-generator to wear a material. Nothing here holds state: a chunk is dressed the same way each
+and returns :class:`~OpenGLContext.scenegraph.surfaces.Geometry` ready for the tile generator
+to wear a material. The hill runs along -Z, so a point at distance ``d`` has ``z = origin - d``:
+world coordinates where ``origin`` is 0, and measured from the tile's own origin where it is the
+distance of the chunk's start, which keeps the 32-bit coordinates of a tile far down the hill
+small and so precise. Textures are laid by the same measure, so ``origin`` should be a whole
+number of texture repeats; chunk starts are. Nothing here holds state: a chunk is dressed the same way each
 time it is asked for, and neighbouring chunks meet exactly because the land is one function
 of position and the ground mesh is laid on one lattice.
 
-What a player sees is what the rules use. A log is as high as a jump must clear, and the
-opening under a gate is as high as a slide fits, because both are built from the constants
-in :mod:`~openglcontext_hill_runner.course`.
+Obstacle sizes come from the constants in :mod:`~openglcontext_hill_runner.course`: a log is as
+high as a jump must clear, and the opening under a gate is as high as a slide fits.
 """
 import enum
 import math
 import threading
+from collections import OrderedDict
 
 import numpy as np
 from OpenGLContext.scenegraph import surfaces as sf
 from OpenGLContext.scenegraph.surfaces import Geometry
 
 from openglcontext_hill_runner import course as c
-from openglcontext_hill_runner.landscape import Landscape, _smooth
+from openglcontext_hill_runner.landscape import Landscape
 
 #: The land reaches this far to either side of the middle of the hill, in metres.
 HALF_WIDTH = 100.0
 PATH_WIDTH = 0.5
-#: Metres between the samples of the height grid the ground cover is seated from.
+#: Metres between the samples of the height grid the ground cover is seated from, and how many
+#: chunks of it are kept.
 FIELD_STEP = 0.5
+GRID_CHUNKS = 12
 #: Metres between rows of the ground mesh along the hill, and between its columns where the
 #: trails can be; beyond ``LATTICE_HALF`` the columns spread out.
 ROW_STEP = 0.5
@@ -74,22 +79,32 @@ class HillField:
 
     def __init__(self, land: Landscape) -> None:
         self.land = land
-        self._grids: dict[int, np.ndarray] = {}
+        self._grids: OrderedDict[int, np.ndarray] = OrderedDict()
         self._lock = threading.Lock()
         self._xs = np.arange(-HALF_WIDTH, HALF_WIDTH + 1e-9, FIELD_STEP)
 
     def _grid(self, index: int) -> np.ndarray:
         with self._lock:
             grid = self._grids.get(index)
-        if grid is None:
-            d = index * c.CHUNK_LENGTH + np.arange(0.0, c.CHUNK_LENGTH + 1e-9, FIELD_STEP)
-            x, dd = np.meshgrid(self._xs, d)
-            grid = self.land.height(x, dd)
-            with self._lock:
-                self._grids[index] = grid
+            if grid is not None:
+                self._grids.move_to_end(index)
+                return grid
+        d = index * c.CHUNK_LENGTH + np.arange(0.0, c.CHUNK_LENGTH + 1e-9, FIELD_STEP)
+        x, dd = np.meshgrid(self._xs, d)
+        grid = self.land.height(x, dd)
+        with self._lock:
+            self._grids[index] = grid
+            while len(self._grids) > GRID_CHUNKS:
+                self._grids.popitem(last=False)
         return grid
 
+    @property
+    def cached(self) -> int:
+        """How many chunks of height grid are held."""
+        return len(self._grids)
+
     def sample(self, x: "np.ndarray | float", z: "np.ndarray | float") -> np.ndarray:
+        """The land's height at each ``(x, z)``."""
         x, d = np.broadcast_arrays(np.asarray(x, dtype=np.float64),
                                    -np.asarray(z, dtype=np.float64))
         out = np.empty(x.shape)
@@ -129,8 +144,8 @@ def _up_normals(slope_x: np.ndarray, slope_d: np.ndarray) -> np.ndarray:
     return unit.astype('f')
 
 
-def terrain(land: Landscape, index: int) -> Geometry:
-    """The land of chunk ``index``."""
+def terrain(land: Landscape, index: int, origin: float = 0.0) -> Geometry:
+    """The land of chunk ``index``, with z measured from ``origin``."""
     xs = _columns()
     rows = int(round(c.CHUNK_LENGTH / ROW_STEP)) + 1
     d = index * c.CHUNK_LENGTH + (np.arange(rows + 2) - 1) * ROW_STEP
@@ -140,17 +155,18 @@ def terrain(land: Landscape, index: int) -> Geometry:
     height = h[1:-1]
     slope_x = np.gradient(height, xs, axis=1)
     dd, x = dd[1:-1], x[1:-1]
-    positions = np.stack([x, height, -dd], axis=-1).reshape(-1, 3).astype('f')
-    texcoords = np.stack([x, -dd], axis=-1).reshape(-1, 2) / GROUND_REPEAT
+    z = origin - dd
+    positions = np.stack([x, height, z], axis=-1).reshape(-1, 3).astype('f')
+    texcoords = np.stack([x, z], axis=-1).reshape(-1, 2) / GROUND_REPEAT
     return Geometry(positions, _up_normals(slope_x, slope_d).reshape(-1, 3),
                     texcoords.astype('f'),
                     np.tile(np.array([1.0, 0.0, 0.0, 1.0], 'f'), (len(positions), 1)),
                     _grid_indices(rows, len(xs)))
 
 
-def path(land: Landscape, lane: int, index: int) -> "Geometry | None":
+def path(land: Landscape, lane: int, index: int, origin: float = 0.0) -> "Geometry | None":
     """The strip of path along ``lane`` through chunk ``index``, laid just above the land; None
-    where the path does not run through the chunk."""
+    where the path does not run through the chunk. z is measured from ``origin``."""
     rows = int(round(c.CHUNK_LENGTH / ROW_STEP)) + 1
     d = index * c.CHUNK_LENGTH + np.arange(rows) * ROW_STEP
     positions = land.course.lane_positions(d)[c.ALL_LANES.index(lane)]
@@ -160,15 +176,15 @@ def path(land: Landscape, lane: int, index: int) -> "Geometry | None":
     d, middle = d[there], positions[there]
     width = np.full(len(d), PATH_WIDTH)
     if lane not in c.TRUNK:
-        _, start, end, _, _ = land.course.fork_arrays(d)
-        width = width * _smooth((d - start) / c.FORK_GROW) * _smooth((end - d) / c.FORK_GROW)
+        width = width * land.course.fork_growth(d)
     x = middle[:, None] + width[:, None] * np.array([-0.5, 0.0, 0.5])[None, :]
     dd = np.repeat(d[:, None], 3, axis=1)
     height = land.height(x, dd)
     slope_d = np.gradient(height, d, axis=0)
-    slope_x = np.gradient(height, np.linspace(-0.25, 0.25, 3), axis=1) if False else np.zeros_like(height)
-    positions3 = np.stack([x, height + PATH_LIFT, -dd], axis=-1).reshape(-1, 3).astype('f')
-    texcoords = np.stack([x - middle[:, None], -dd], axis=-1).reshape(-1, 2) / PATH_REPEAT
+    slope_x = np.zeros_like(height)
+    z = origin - dd
+    positions3 = np.stack([x, height + PATH_LIFT, z], axis=-1).reshape(-1, 3).astype('f')
+    texcoords = np.stack([x - middle[:, None], z], axis=-1).reshape(-1, 2) / PATH_REPEAT
     return Geometry(positions3, _up_normals(slope_x, slope_d).reshape(-1, 3),
                     texcoords.astype('f'),
                     np.tile(np.array([1.0, 0.0, 0.0, 1.0], 'f'), (len(positions3), 1)),
@@ -177,17 +193,13 @@ def path(land: Landscape, lane: int, index: int) -> "Geometry | None":
 
 # -- what stands on the hill ---------------------------------------------------------
 
-def _merged(parts: list[Geometry]) -> Geometry:
-    return sf.merge(parts)
-
-
-def obstacle(land: Landscape, thing: c.Obstacle) -> dict[Part, Geometry]:
+def obstacle(land: Landscape, thing: c.Obstacle, origin: float = 0.0) -> dict[Part, Geometry]:
     """The pieces of an obstacle, by what each is made of.
 
     It stands across the paths it blocks, turned to the way the trail runs there, and fills
     the width of them: a log or a boulder for a low obstacle, a gate with a board hanging in
     it for a high one, a brick wall or a pile of rock for a wall. Which of the two each kind
-    is comes from where it stands.
+    is comes from where it stands. z is measured from ``origin``.
     """
     course = land.course
     d = thing.distance
@@ -196,11 +208,11 @@ def obstacle(land: Landscape, thing: c.Obstacle) -> dict[Part, Geometry]:
     width = (xs[-1] - xs[0]) + 2 * c.OBSTACLE_HALF_WIDTH
     ground = float(land.height(x, d))
     turn = -math.atan((course.lane_x(thing.lane, d + 1.0) - course.lane_x(thing.lane, d - 1.0)) / 2.0)
-    rng = np.random.default_rng([int(d * 10), thing.lane + 2, thing.span])
+    rng = c.stream(course.seed, 'obstacle', int(d * 10), thing.lane + 2, thing.span)
     boulder = rng.random() < 0.5
 
     def placed(local: Geometry) -> Geometry:
-        return sf.placed(local, (x, ground, -d), (0.0, 1.0, 0.0, turn))
+        return sf.placed(local, (x, ground, origin - d), (0.0, 1.0, 0.0, turn))
 
     if thing.kind is c.Kind.LOW:
         if boulder:
@@ -223,16 +235,24 @@ def _log(width: float) -> Geometry:
     caps = [sf.placed(sf.polygon(radius, sides=16, repeat=0.5),
                       (side * width / 2, radius, 0.0),
                       (0.0, 1.0, 0.0, side * math.pi / 2)) for side in (-1, 1)]
-    return _merged([body, *caps])
+    return sf.merge([body, *caps])
+
+
+def _lumpy_sphere(rng: np.random.Generator, sides: int, amount: float) -> tuple[Geometry, np.ndarray]:
+    """A unit sphere and a factor for each of its vertices, near 1 within ``amount``.
+
+    Vertices that share a place share a factor, so the surface stays closed.
+    """
+    ball = sf.sphere(1.0, sides=sides)
+    _, first, inverse = np.unique(np.round(ball.positions, 3), axis=0, return_index=True,
+                                  return_inverse=True)
+    return ball, (1.0 + amount * (rng.random(len(first)) - 0.5))[inverse.reshape(-1)]
 
 
 def _boulder(rng: np.random.Generator, width: float, top: float, depth: float,
              sunk: float = 0.12) -> Geometry:
     """A lumpy rock filling ``width`` by ``depth``, its top ``top`` above the ground."""
-    ball = sf.sphere(1.0, sides=10)
-    key = np.round(ball.positions, 3)
-    _, first, inverse = np.unique(key, axis=0, return_index=True, return_inverse=True)
-    lumpy = (1.0 + 0.16 * (rng.random(len(first)) - 0.5))[inverse.reshape(-1)]
+    ball, lumpy = _lumpy_sphere(rng, 10, 0.16)
     raw = ball.positions * lumpy[:, None]
     size = np.array([width, top + sunk, depth])
     scale = size / np.ptp(raw, axis=0)
@@ -255,33 +275,35 @@ def _gate(width: float) -> Geometry:
     board_height = c.HIGH_TOP - 0.02 - c.HIGH_BOTTOM
     board = sf.placed(sf.block((width - 0.04, board_height, 0.07), repeat=0.5),
                       (0.0, c.HIGH_BOTTOM + board_height / 2, 0.0))
-    return _merged([*posts, beam, board])
+    return sf.merge([*posts, beam, board])
 
 
-def divider(land: Landscape, hedge: c.Divider) -> Geometry:
-    """A low stone wall between two paths, following the land and the trail along its span."""
+def divider(land: Landscape, hedge: c.Divider, origin: float = 0.0) -> Geometry:
+    """A low stone wall between two paths, following the land and the trail along its span; z is
+    measured from ``origin``."""
     course = land.course
     count = max(1, math.ceil((hedge.end - hedge.start) / ROW_STEP))
     d = np.linspace(hedge.start, hedge.end, count + 1)
     middle = np.array([(course.lane_x(hedge.lane, v) + course.lane_x(hedge.lane + 1, v)) / 2
                        for v in d])
     ground = land.height(middle, d)
+    z = origin - d
     half = HEDGE_WIDTH / 2
     faces = []
     for side in (-1, 1):                                           # the two long sides
-        bottom = np.stack([middle + side * half, ground - 0.3, -d], axis=-1)
-        top = np.stack([middle + side * half, ground + HEDGE_HEIGHT, -d], axis=-1)
+        bottom = np.stack([middle + side * half, ground - 0.3, z], axis=-1)
+        top = np.stack([middle + side * half, ground + HEDGE_HEIGHT, z], axis=-1)
         faces.append(_ribbon(bottom, top, (side, 0.0, 0.0), flip=side < 0))
-    left = np.stack([middle - half, ground + HEDGE_HEIGHT, -d], axis=-1)
-    right = np.stack([middle + half, ground + HEDGE_HEIGHT, -d], axis=-1)
+    left = np.stack([middle - half, ground + HEDGE_HEIGHT, z], axis=-1)
+    right = np.stack([middle + half, ground + HEDGE_HEIGHT, z], axis=-1)
     faces.append(_ribbon(left, right, (0.0, 1.0, 0.0), flip=True))
     for end, toward in ((0, 1.0), (-1, -1.0)):                     # the two ends
         low = np.stack([[middle[end] - half, middle[end] + half], [ground[end] - 0.3] * 2,
-                        [-d[end]] * 2], axis=-1)
+                        [z[end]] * 2], axis=-1)
         high = np.stack([[middle[end] - half, middle[end] + half], [ground[end] + HEDGE_HEIGHT] * 2,
-                         [-d[end]] * 2], axis=-1)
+                         [z[end]] * 2], axis=-1)
         faces.append(_ribbon(low, high, (0.0, 0.0, toward), flip=toward < 0))
-    return _merged(faces)
+    return sf.merge(faces)
 
 
 def _ribbon(first: np.ndarray, second: np.ndarray, normal: tuple[float, float, float],
@@ -328,10 +350,12 @@ def _cone(radius: float, height: float, base: np.ndarray, sides: int = 8) -> Geo
                     indices.ravel().astype(np.uint32))
 
 
-def trees(land: Landscape, chunk: c.Chunk) -> tuple[Geometry, Geometry]:
+def trees(land: Landscape, chunk: c.Chunk,
+          origin: float = 0.0) -> tuple[Geometry | None, Geometry | None]:
     """The simple conifers of a chunk as ``(foliage, trunks)``, each one mesh: more where the
-    country is wooded, none in sand, and clear of every path."""
-    rng = np.random.default_rng([chunk.index, 7])
+    country is wooded, none in sand (``None``, ``None``), and clear of every path. z is measured
+    from ``origin``."""
+    rng = c.stream(land.course.seed, 'trees', chunk.index)
     count = 2 * TREES_PER_SIDE * 3
     d = chunk.start + rng.uniform(0.0, c.CHUNK_LENGTH, count)
     lanes = land.course.lane_positions(d)
@@ -347,8 +371,10 @@ def trees(land: Landscape, chunk: c.Chunk) -> tuple[Geometry, Geometry]:
                                                          >= TREE_NEAREST + spread)
     foliage: list[Geometry] = []
     trunks: list[Geometry] = []
-    for i in np.flatnonzero(keep)[:2 * TREES_PER_SIDE * 3]:
-        root = np.array([x[i], float(land.height(x[i], d[i])) - 0.3, -d[i]])
+    where = np.flatnonzero(keep)
+    ground = land.height(x[where], d[where])
+    for i, base_height in zip(where, ground, strict=True):
+        root = np.array([x[i], float(base_height) - 0.3, origin - d[i]])
         trunks.append(sf.moved(sf.cylinder(0.22 + top[i] * 0.012, 2.6, sides=8, repeat=1.0),
                                (root + (0.0, 1.3, 0.0)).tolist()))
         for tier in range(3):
@@ -356,21 +382,13 @@ def trees(land: Landscape, chunk: c.Chunk) -> tuple[Geometry, Geometry]:
             foliage.append(_cone(spread[i] * (1.0 - 0.25 * tier), top[i] * 0.42 - tier * 0.5,
                                  root + (0.0, lift, 0.0)))
     if not foliage:
-        empty = Geometry(np.zeros((3, 3), 'f'), np.tile(np.array([0, 1, 0], 'f'), (3, 1)),
-                         np.zeros((3, 2), 'f'), np.tile(np.array([1, 0, 0, 1], 'f'), (3, 1)),
-                         np.zeros(3, np.uint32))
-        return empty, empty
-    return _merged(foliage), _merged(trunks)
+        return None, None
+    return sf.merge(foliage), sf.merge(trunks)
 
 
 def _rock(rng: np.random.Generator, radius: float, centre: np.ndarray) -> Geometry:
     """One rock: a lumpy, flattened ball sunk a little into the ground at ``centre``."""
-    ball = sf.sphere(1.0, sides=8)
-    lumpy = 1.0 + 0.28 * (rng.random(len(ball.positions)) - 0.5)
-    # Vertices that share a place must keep sharing it, so the surface stays closed.
-    key = np.round(ball.positions, 3)
-    _, first, inverse = np.unique(key, axis=0, return_index=True, return_inverse=True)
-    lumpy = lumpy[first][inverse.reshape(-1)]
+    ball, lumpy = _lumpy_sphere(rng, 8, 0.28)
     scale = radius * np.array([1.0, 0.62, 1.0 + 0.35 * rng.random()]) * lumpy[:, None]
     turn = rng.uniform(0.0, 2.0 * math.pi)
     cos, sin = math.cos(turn), math.sin(turn)
@@ -386,12 +404,13 @@ def _rock(rng: np.random.Generator, radius: float, centre: np.ndarray) -> Geomet
                     ball.tangents, ball.indices)
 
 
-def rocks(land: Landscape, chunk: c.Chunk) -> Geometry:
-    """The rocks of a chunk as one mesh: mostly hand-sized, a few boulders, none on a trail.
+def rocks(land: Landscape, chunk: c.Chunk, origin: float = 0.0) -> Geometry | None:
+    """The rocks of a chunk as one mesh: mostly hand-sized, a few boulders, none on a trail; None
+    where there are none.
 
-    There are more where the country is rocky, and bigger.
+    There are more where the country is rocky, and bigger. z is measured from ``origin``.
     """
-    rng = np.random.default_rng([chunk.index, 29])
+    rng = c.stream(land.course.seed, 'rocks', chunk.index)
     count = int(ROCKS_PER_CHUNK * ROCK_DENSITY_MAX)
     d = chunk.start + rng.uniform(0.0, c.CHUNK_LENGTH, count)
     lanes = land.course.lane_positions(d)
@@ -403,11 +422,11 @@ def rocks(land: Landscape, chunk: c.Chunk) -> Geometry:
     density = land.rock_density(x, d)
     keep = ok & (rng.random(count) * ROCK_DENSITY_MAX < density) & (
         land.trail_gap(x, d) >= ROCK_NEAREST + ROCK_LARGEST)
+    where = np.flatnonzero(keep)
+    ground = land.height(x[where], d[where])
     parts = []
-    for i in np.flatnonzero(keep):
+    for i, base_height in zip(where, ground, strict=True):
         largest = ROCK_LARGEST * (1.0 + 0.5 * min(1.0, (density[i] - 1.0) / 4.0))
         size = ROCK_SMALLEST + (largest - ROCK_SMALLEST) * float(rng.random()) ** 3
-        parts.append(_rock(rng, size, np.array([x[i], float(land.height(x[i], d[i])), -d[i]])))
-    if not parts:
-        parts.append(_rock(rng, 0.01, np.array([0.0, -1000.0, -chunk.start])))
-    return _merged(parts)
+        parts.append(_rock(rng, size, np.array([x[i], float(base_height), origin - d[i]])))
+    return sf.merge(parts) if parts else None

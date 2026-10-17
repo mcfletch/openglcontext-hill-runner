@@ -80,7 +80,7 @@ def test_dividers_stand_only_where_no_wall_needs_a_hop():
         for divider in chunk.dividers:
             found = True
             walls = [o for o in chunk.obstacles if o.kind is c.Kind.WALL
-                     and divider.start - c.WALL_CLEARANCE <= o.distance <= divider.end]
+                     and divider.start <= o.distance <= divider.end]
             assert walls == []
     assert found, 'no chunk of 120 had a divider'
 
@@ -298,3 +298,31 @@ def test_the_new_paths_have_things_to_run_through_too():
                      for i in range(c.chunk_index(fork.start), c.chunk_index(fork.end) + 1)
                      for o in world.chunk(i).obstacles if o.lane > 2 or o.lane < 0]
     assert len(on_fork_lanes) >= 4
+
+
+def test_only_the_chunks_near_the_runner_are_kept_and_the_rest_come_back_the_same():
+    world = c.Course(2)
+    first = world.chunk(5)
+    for index in range(c.CHUNKS_KEPT + 40):
+        world.chunk(index)
+    assert world.chunks_held <= c.CHUNKS_KEPT
+    assert world.chunk(5) == first
+
+
+def test_each_kind_of_randomness_has_a_stream_of_its_own():
+    draws = {name: c.stream(7, name, 3).random() for name in ('chunk', 'forks', 'wander', 'zones')}
+    assert len(set(draws.values())) == 4
+    assert c.stream(7, 'chunk', 3).random() == draws['chunk']
+    assert c.stream(7, 'chunk', 90210).random() != c.stream(7, 'forks').random()
+    assert c.stream(8, 'chunk', 3).random() != draws['chunk']
+
+
+def test_a_forks_paths_grow_in_from_nothing_and_out_again_by_fork_growth():
+    course = c.Course(3)
+    fork = course.fork(0)
+    d = np.array([fork.start, fork.start + c.FORK_GROW / 2, (fork.start + fork.end) / 2,
+                  fork.end - c.FORK_GROW / 2, fork.end])
+    growth = course.fork_growth(d)
+    assert growth[0] == pytest.approx(0.0) and growth[-1] == pytest.approx(0.0)
+    assert 0.0 < growth[1] < 1.0 and 0.0 < growth[3] < 1.0
+    assert growth[2] == pytest.approx(1.0)

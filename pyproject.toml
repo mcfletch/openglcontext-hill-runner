@@ -15,7 +15,7 @@ license-files = ["LICENSE", "ASSET-LICENSES.md"]
 authors = [{ name = "Mike C. Fletcher", email = "vrplumber@gmail.com" }]
 keywords = ["OpenGLContext", "OpenGL", "game", "runner", "PBR", "demo", "3D"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Environment :: X11 Applications",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",

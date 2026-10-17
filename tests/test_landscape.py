@@ -176,3 +176,22 @@ def test_the_land_has_no_step_where_a_forks_paths_begin_or_end(land):
             for lateral in (3.0, 10.0, 18.0, 30.0):
                 x = np.full_like(d, land.course.centre(edge) + fork.side * lateral)
                 assert np.abs(np.diff(land.height(x, d))).max() < 0.15, (edge, lateral)
+
+
+def test_the_weights_still_sum_to_one_past_the_last_zone(monkeypatch):
+    monkeypatch.setattr(ls, 'ZONE_LIMIT', 12)
+    world = ls.Landscape(c.Course(1))
+    last = world.zones[-1]
+    d = np.linspace(last.start - 200.0, last.start + 3000.0, 400)
+    w = world.weights(np.zeros_like(d), d)
+    assert np.allclose(w.sum(axis=0), 1.0)
+    assert Biome(int(np.argmax(w[:, -1]))) is last.biome
+
+
+def test_a_run_of_a_day_has_countries_and_forks_all_the_way():
+    world = ls.Landscape(c.Course(1))
+    far = 24.0 * 3600.0 * 24.0                    # a day at the top speed
+    assert world.zones[-1].start > far
+    assert world.course.forks_between(far, far + 3000.0)
+    d = np.array([far, far + 100.0])
+    assert np.allclose(world.weights(np.zeros(2), d).sum(axis=0), 1.0)

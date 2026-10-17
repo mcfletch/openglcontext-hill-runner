@@ -2,23 +2,42 @@
 
 ## Done
 
-- Engine: `GeneratedTiles` (see openglcontext `plans/GENERATED-TILES.md`).
-- Rules without GL: course, runner, game, pilot, cues, chase, session. 159 tests, including a pilot that runs 24
-  generated courses for 3500 m each.
+- Engine: `GeneratedTiles` with a per-tile `origin`, `VegetationField.replant` and empty forests,
+  `GroundCover` on any `Ground` with `relocate` and `dispose`, and `surfaces.merge([])` (see openglcontext
+  `plans/GENERATED-TILES.md`).
+- Tiles are built around the start of their chunk and drawn translated to it, so vertex coordinates stay
+  small and precise at any distance; textures are laid from the same origin.
+- Rules without GL: course, runner, game, pilot, cues, chase, session. A pilot runs generated courses to
+  3500 m in every policy for the forks (always, never, by turns) and survives them all.
 - Slide clip: `grass-clumps/slide.py` adds `Slide` to the UAL figure; `assets/runner.glb` is its output.
-- Scale: trails 0.5 m wide, 0.2 m apart; the camera sits above head height with the feet at the bottom edge of the frame.
-- Ground: metre and hand-sized relief in the land, patches of lush and dry ground by vertex colour, rocks, CC0 photographs for the ground and trails.
-- Forest: the forest demo's trees through `VegetationField` and its grass, ferns and flowers through `GroundCover`, kept clear of the trails by each tree's crown radius.
-- Window: hill tiles, runner, coins, HUD, pause and end-of-run screens, music and sound effects, shadows.
-
-- Barriers a metre high across one or two paths, as logs, boulders, gates and walls, and coins kept out of their way; coins textured, jewels cut in facets that hang where a jump reaches.
-- Credits at start and in the menu.
-- Countries (forest, rocks, sand, meadow, dense forest) along the hill, and a wandering trail; the land is carved around every trail.
-- Forks: two extra paths on a side that draw away through another country and rejoin; the pilot takes or declines them and survives every seed it is tried on.
+- Scale: trails 0.5 m wide and 0.2 m apart; the camera sits above head height with the feet at the bottom
+  of the frame.
+- Barriers a metre high across one or two paths, as logs, boulders, gates and walls, with coins kept out of
+  their way. Coins are textured; jewels are cut in facets and hang where a jump reaches.
+- Countries (forest, rocks, sand, meadow, dense forest) along the hill and a wandering trail. The land is
+  cut down to every trail and rises beside it. Where two countries meet the second ground is blended over
+  the first.
+- Forks: two extra paths on a side draw away through another country and rejoin. The pilot takes or
+  declines them.
+- Ground: metre- and hand-sized relief, patches of lush and dry ground by vertex colour, rocks, CC0
+  photographs for the ground and the trails.
+- Forest: the forest demo's trees through `VegetationField`, planted a stretch at a time on a worker, and its
+  grass, ferns and flowers through `GroundCover`. Trees keep clear of every path by their crown radius.
+- Window: tiles, runner, coins and jewels, HUD, pause, credits and end-of-run screens, music and effects,
+  shadows. Where the runner stands, how it is turned and where the camera is come from `Session`.
+- Credits printed at start and shown from the menu.
 
 ## Open
 
-- Branching paths and rivers to swim: a course chunk needs a way to say a path forks, and the runner needs a
-  swim state with `Swim_Fwd_Loop`.
-- The engine's splat ground (`SplatTerrain`, `GroundShading`) reads one control map over a bounded world; an endless hill needs a control map that repeats.
+- Rivers to swim: a swim state with `Swim_Fwd_Loop`, and a country with water.
+- A branch always rejoins the trail. A branch that becomes the trail, and a trail that ends, need a course
+  that depends on the runner's choices.
+- The fork and country schedules are fixed arrays: 3000 forks (about 3000 km) and 6000 countries. Past
+  them the hill carries on with the last country and no more forks. A schedule made block by block would
+  have no end.
+- The game-over screen is latched by the window (`_game_over_shown`); the rest of the window's logic is in
+  `Session`.
+- The engine's splat ground (`SplatTerrain`, `GroundShading`) reads one control map over a bounded world;
+  an endless hill needs a control map that repeats.
+- Sign posts at a fork's start; each country's fog and sky colour.
 - The slide reads small from behind the runner; a lower camera during a slide would show the pose.

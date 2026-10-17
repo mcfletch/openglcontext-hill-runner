@@ -3,7 +3,8 @@
 :class:`HillTiles` is the generator a
 :class:`~OpenGLContext.scenegraph.generatedtiles.GeneratedTiles` node asks. The
 engine says which chunks are near the camera; this gives each one's bounds, and
-builds its meshes on a worker thread when the chunk is wanted.
+builds its meshes on a worker thread when the chunk is wanted. Each tile is built around
+its own origin, the start of its chunk, and drawn translated there.
 
 A tile's ground is drawn on the ground layer that most of it is, and where another
 country shows in the tile its layer is drawn over the first, a hair above it, with the
@@ -16,7 +17,7 @@ import numpy as np
 from OpenGLContext.loaders.tiles3d.boundingvolume import BoxBV
 from OpenGLContext.scenegraph.basenodes import Appearance, Group, Shape
 from OpenGLContext.scenegraph.pbrmesh import PBRMesh
-from OpenGLContext.scenegraph.surfaces import Geometry, merge, shape
+from OpenGLContext.scenegraph.surfaces import Geometry, merge
 
 from openglcontext_hill_runner import course as c
 from openglcontext_hill_runner import scenery as s
@@ -37,11 +38,9 @@ OVERLAY_FROM = 0.04
 
 @dataclass(frozen=True)
 class TileScene:
-    """What the tile runtime takes of a generated tile: a node to draw and its size."""
+    """What the tile runtime takes of a generated tile: the node to draw."""
 
     group: Group
-    center: tuple[float, float, float]
-    radius: float
 
 
 def _bytes(geometry: Geometry) -> int:
@@ -66,6 +65,7 @@ class HillTiles:
         return range(first, c.chunk_index(distance + radius) + 1)
 
     def bounds(self, key: int) -> BoxBV:
+        """The box that holds the land of chunk ``key``."""
         start = key * c.CHUNK_LENGTH
         top = c.ground_height(start) + HEADROOM
         bottom = c.ground_height(start + c.CHUNK_LENGTH) - DEPTH_BELOW
@@ -74,62 +74,63 @@ class HillTiles:
                      [(s.HALF_WIDTH, 0.0, 0.0), (0.0, half, 0.0),
                       (0.0, 0.0, c.CHUNK_LENGTH / 2.0)])
 
+    def origin(self, key: int) -> tuple[float, float, float]:
+        """The world position of chunk ``key``'s start, around which its meshes are built."""
+        return (0.0, 0.0, -key * c.CHUNK_LENGTH)
+
     def generate(self, key: int) -> tuple[TileScene, int]:
         """The meshes of chunk ``key``, and their size in bytes. Runs on a worker."""
         land, look = self.land, self.look
         chunk = self.course.chunk(key)
+        origin = key * c.CHUNK_LENGTH
         nodes: list[Any] = []
         size = 0
 
-        ground = s.terrain(land, key)
-        x, d = ground.positions[:, 0].astype(float), -ground.positions[:, 2].astype(float)
+        ground = s.terrain(land, key, origin)
+        x, d = ground.positions[:, 0].astype(float), origin - ground.positions[:, 2].astype(float)
         tint = land.tint(x, d)
         layers = land.layer_weights(x, d)
         base = int(np.argmax(layers.mean(axis=1)))
-        nodes.append(self._mesh(ground, look.ground[Layer(base)], tint, False, False))
+        nodes.append(self._node(ground, look.ground[Layer(base)], tint))
         size += _bytes(ground) + tint.nbytes
         for index, layer in enumerate(Layer):
             if index == base or layers[index].max() < OVERLAY_FROM:
                 continue
             overlay, colours = self._overlay(ground, tint, layers[index])
-            nodes.append(self._mesh(overlay, look.ground[layer], colours, False, True))
+            nodes.append(self._node(overlay, look.ground[layer], colours, blend=True))
             size += _bytes(overlay) + colours.nbytes
 
-        strips = [p for p in (s.path(land, lane, key) for lane in c.ALL_LANES) if p is not None]
+        strips = [p for p in (s.path(land, lane, key, origin) for lane in c.ALL_LANES) if p is not None]
         trail = merge(strips)
         trail_tint = land.tint(trail.positions[:, 0].astype(float),
-                               -trail.positions[:, 2].astype(float))
-        nodes.append(self._mesh(trail, look.path, trail_tint, False, False))
+                               origin - trail.positions[:, 2].astype(float))
+        nodes.append(self._node(trail, look.path, trail_tint))
         size += _bytes(trail) + trail_tint.nbytes
 
-        by_part: dict[s.Part, list[Geometry]] = {s.Part.ROCK: [s.rocks(land, chunk)]}
+        by_part: dict[s.Part, list[Geometry]] = {}
+        rocks = s.rocks(land, chunk, origin)
+        if rocks is not None:
+            by_part[s.Part.ROCK] = [rocks]
         for obstacle in chunk.obstacles:
-            for part, geometry in s.obstacle(land, obstacle).items():
+            for part, geometry in s.obstacle(land, obstacle, origin).items():
                 by_part.setdefault(part, []).append(geometry)
         if chunk.dividers:
-            by_part.setdefault(s.Part.STONE, []).extend(s.divider(land, h) for h in chunk.dividers)
+            by_part.setdefault(s.Part.STONE, []).extend(s.divider(land, h, origin) for h in chunk.dividers)
         if self.trees:
-            foliage, trunks = s.trees(land, chunk)
-            by_part.setdefault(s.Part.FOLIAGE, []).append(foliage)
-            by_part.setdefault(s.Part.BARK, []).append(trunks)
+            foliage, trunks = s.trees(land, chunk, origin)
+            if foliage is not None and trunks is not None:
+                by_part.setdefault(s.Part.FOLIAGE, []).append(foliage)
+                by_part.setdefault(s.Part.BARK, []).append(trunks)
         for part, geometries in by_part.items():
             merged = merge(geometries)
-            nodes.append(self._casting(merged, look.parts[part]))
+            nodes.append(self._node(merged, look.parts[part], casts=True))
             size += _bytes(merged)
 
         group = Group()
         group.children = nodes
-        centre, radius = self.bounds(key).bounding_sphere()
-        return (TileScene(group, (float(centre[0]), float(centre[1]), float(centre[2])), radius),
-                size)
+        return TileScene(group), size
 
     # -- building shapes --
-    @staticmethod
-    def _casting(geometry: Geometry, material: Any) -> Any:
-        placed = shape(geometry, material)
-        placed.children[0].castShadow = True
-        return placed
-
     @staticmethod
     def _overlay(ground: Geometry, tint: np.ndarray,
                  weight: np.ndarray) -> tuple[Geometry, np.ndarray]:
@@ -146,15 +147,18 @@ class HillTiles:
         return overlay, colours
 
     @staticmethod
-    def _mesh(geometry: Geometry, material: Any, colours: np.ndarray, casts: bool,
-              blend: bool) -> Any:
-        """A shape of ``geometry`` tinted by vertex colour; ``blend`` lets its alpha show."""
+    def _node(geometry: Geometry, material: Any, colours: np.ndarray | None = None,
+              casts: bool = False, blend: bool = False) -> Any:
+        """A shape of ``geometry`` wearing ``material``, tinted by ``colours`` per vertex.
+
+        ``casts`` makes it cast shadows; ``blend`` lets the alpha of ``colours`` show.
+        """
         look = Appearance(material=material)
         if blend:
             look.alphaMode = 'BLEND'
         mesh = PBRMesh(positions=geometry.positions, normals=geometry.normals,
                        texcoords=geometry.texcoords, tangents=geometry.tangents,
-                       indices=geometry.indices, appearance=look, colors=colours)
+                       indices=geometry.indices, colors=colours)
         node = Shape(geometry=mesh, appearance=look)
         node.castShadow = casts
         return node

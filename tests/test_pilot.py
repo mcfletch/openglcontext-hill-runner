@@ -33,6 +33,14 @@ def test_the_pilot_runs_every_course_without_a_crash(seed, branch):
             game.crashed_into, game.runner.distance, game.runner.lane))
 
 
+@pytest.mark.parametrize('seed', range(4))
+def test_the_pilot_runs_the_hardest_stretch_too(seed):
+    start = c.HARDEST_AT_CHUNK * c.CHUNK_LENGTH
+    game = drive(seed, start + 800.0)
+    assert game.state is g.State.RUNNING, 'crashed into %s at %.1f m' % (
+        game.crashed_into, game.runner.distance)
+
+
 def test_a_pilot_that_takes_the_forks_runs_along_the_new_paths():
     game = drive(3, 3500, branch=True)
     assert game.lanes_run & {3, 4, -1, -2}

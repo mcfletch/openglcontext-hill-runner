@@ -12,6 +12,8 @@ from openglcontext_hill_runner import cues
 
 @dataclass(frozen=True)
 class Credit:
+    """One credit: what it is for, who made it, the licence it is under and where it is from."""
+
     what: str
     author: str
     licence: str
