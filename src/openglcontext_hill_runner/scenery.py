@@ -26,7 +26,7 @@ from OpenGLContext.scenegraph import surfaces as sf
 from OpenGLContext.scenegraph.surfaces import Geometry
 
 from openglcontext_hill_runner import course as c
-from openglcontext_hill_runner.landscape import CAVE_HALF_WIDTH, WALL_OVER, WALL_RISE, Landscape
+from openglcontext_hill_runner.landscape import CAVE_HALF_WIDTH, WALL_RISE, Landscape
 
 #: The land reaches this far to either side of the middle of the hill, in metres.
 HALF_WIDTH = 100.0
@@ -75,8 +75,17 @@ FLAME_RISE = 0.5
 #: and a little into its walls, and its underside hangs in lumps up to CEILING_BUMP metres deep.
 CEILING_STEP = 1.0
 CEILING_COLUMNS = 15
-CEILING_BUMP = 0.3
+CEILING_BUMP = 0.2
 CEILING_INTO_WALLS = 1.6
+#: A tunnel is arched: its ceiling comes down VAULT metres toward the walls. The face a mouth is cut
+#: in slopes back into the hill for FACE_BACK metres, as FACE_ROWS by FACE_COLUMNS points; the top
+#: of the hill over the cave is laid CAP_STEP metres between rows, CAP_COLUMNS across.
+VAULT = 1.5
+FACE_BACK = 7.0
+FACE_ROWS = 10
+FACE_COLUMNS = 21
+CAP_STEP = 2.0
+CAP_COLUMNS = 9
 #: Trees of the simple kind per side per chunk, and how close to the paths the nearest may stand.
 TREES_PER_SIDE = 12
 TREE_NEAREST = 2.2
@@ -553,61 +562,156 @@ def _torch(side: int) -> tuple[Geometry, Geometry]:
             sf.placed(flame, (0.0, 0.0, 0.0), lean))
 
 
+def _vault(across: np.ndarray) -> np.ndarray:
+    """How far the ceiling comes down at ``across`` metres from the trail's middle: a bored tunnel is
+    arched, and is lowest where it meets its walls."""
+    reach = CAVE_HALF_WIDTH + CEILING_INTO_WALLS
+    return np.asarray(VAULT * np.minimum((np.asarray(across) / reach) ** 2, 2.0))
+
+
+def _across(columns: int, half: float) -> np.ndarray:
+    return np.linspace(-1.0, 1.0, columns) * half
+
+
+def _grid_triangles(rows: int, columns: int, toward: np.ndarray, positions: np.ndarray) -> np.ndarray:
+    """Two triangles for each cell of a grid of ``rows`` by ``columns`` vertices, wound to face
+    ``toward``."""
+    triangles = _grid_indices(rows, columns).reshape(-1, 3)
+    corners = positions[triangles].astype(float)
+    normal = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]).sum(axis=0)
+    if float(normal @ toward) < 0.0:
+        triangles = triangles[:, [0, 2, 1]]
+    return triangles.ravel().astype(np.uint32)
+
+
+def _surface(positions: np.ndarray, rows: int, columns: int, toward: tuple[float, float, float],
+             texcoords: np.ndarray) -> Geometry:
+    """A grid of ``rows`` by ``columns`` points as a mesh whose normals face ``toward``."""
+    grid = positions.reshape(rows, columns, 3)
+    along_rows = np.gradient(grid, axis=0)
+    along_columns = np.gradient(grid, axis=1)
+    normals = np.cross(along_columns, along_rows)
+    normals = normals / np.maximum(np.linalg.norm(normals, axis=-1, keepdims=True), 1e-9)
+    facing = np.asarray(toward, dtype=float)
+    flip = np.sign(np.sum(normals.reshape(-1, 3) * facing, axis=-1).sum()) or 1.0
+    return Geometry(positions.astype('f'), (normals * flip).reshape(-1, 3).astype('f'),
+                    texcoords.astype('f'),
+                    np.tile(np.array([1.0, 0.0, 0.0, 1.0], 'f'), (len(positions), 1)),
+                    _grid_triangles(rows, columns, facing, positions))
+
+
+def _roof(land: Landscape, x: np.ndarray, d: np.ndarray, across: np.ndarray) -> np.ndarray:
+    """The height of the cave's ceiling at ``x`` and ``d``, where ``x`` lies ``across`` from the
+    centre of the trail: the course's ceiling less the arch and the lumps."""
+    roof = np.asarray(land.footing(x, d)) + np.asarray(land.course.ceiling(d))
+    lumps = fbm(x / 1.7 + 4.0, d / 1.7 - 9.0, seed=71, octaves=3)
+    return np.asarray(roof - CEILING_BUMP * lumps - _vault(across))
+
+
 def _ceiling(land: Landscape, cave: c.Cave, index: int, origin: float) -> "Geometry | None":
-    """The ceiling of ``cave`` over chunk ``index``: a sheet over the corridor and into the
-    walls, hanging at the course's ceiling height, in lumps. z is measured from ``origin``."""
+    """The ceiling of ``cave`` over chunk ``index``: a vault over the corridor and into its walls,
+    hanging at the course's ceiling height, in lumps. z is measured from ``origin``."""
     start = max(cave.start, index * c.CHUNK_LENGTH)
     end = min(cave.end, (index + 1) * c.CHUNK_LENGTH)
     if end - start < 1e-6:
         return None
     rows = max(2, int(math.ceil((end - start) / CEILING_STEP)) + 1)
     d = np.linspace(start, end, rows)
-    across = np.linspace(-1.0, 1.0, CEILING_COLUMNS) * (CAVE_HALF_WIDTH + CEILING_INTO_WALLS)
+    across = _across(CEILING_COLUMNS, CAVE_HALF_WIDTH + CEILING_INTO_WALLS)
     x = np.asarray(land.course.centre(d))[:, None] + across[None, :]
     dd = np.repeat(d[:, None], CEILING_COLUMNS, axis=1)
-    roof = np.asarray(land.footing(x, dd)) + np.asarray(land.course.ceiling(dd))
-    lumps = fbm(x / 1.7 + 4.0, dd / 1.7 - 9.0, seed=71, octaves=3)
-    # Lumps hang, and they hang less over the corridor than where the roof meets the walls.
-    y = roof - CEILING_BUMP * lumps
-    slope_x = np.gradient(y, across, axis=1)
-    slope_d = np.gradient(y, d, axis=0)
+    y = _roof(land, x, dd, across)
     z = origin - dd
-    positions = np.stack([x, y, z], axis=-1).reshape(-1, 3).astype('f')
+    positions = np.stack([x, y, z], axis=-1).reshape(-1, 3)
     texcoords = np.stack([x, z], axis=-1).reshape(-1, 2) / GROUND_REPEAT
-    triangles = _grid_indices(rows, CEILING_COLUMNS).reshape(-1, 3)[:, [0, 2, 1]]
-    return Geometry(positions, -_up_normals(slope_x, slope_d).reshape(-1, 3), texcoords.astype('f'),
-                    np.tile(np.array([1.0, 0.0, 0.0, 1.0], 'f'), (len(positions), 1)),
-                    triangles.ravel().astype(np.uint32))
+    return _surface(positions, rows, CEILING_COLUMNS, (0.0, -1.0, 0.0), texcoords)
 
 
-def _mouth(land: Landscape, cave: c.Cave, origin: float) -> Geometry:
-    """The face of rock over a cave's opening, looking out the way the trail comes from: it
-    runs from the ceiling at the mouth up to the top of the hill about it."""
-    d = cave.start
-    centre = float(land.course.centre(d))
-    half = CAVE_HALF_WIDTH + WALL_RISE
-    base = float(land.footing(centre, d)) + float(land.course.ceiling(d))
-    top = base + WALL_OVER + 0.5
+def _top_of_the_hill(land: Landscape, d: np.ndarray) -> np.ndarray:
+    """How high the top of the hill over a cave is, at each ``d``: where the walls of the trench
+    reach, across the whole of it."""
+    reach = CAVE_HALF_WIDTH + WALL_RISE + 0.6
+    centre = np.asarray(land.course.centre(d))
+    return np.asarray(0.5 * (np.asarray(land.footing(centre - reach, d))
+                             + np.asarray(land.footing(centre + reach, d))))
+
+
+def _cap(land: Landscape, cave: c.Cave, index: int, origin: float) -> "Geometry | None":
+    """The top of the hill over the middle of a cave, where the trench its walls make is open to the
+    sky: a strip as high as the walls are, so that the hill is one thing over the tunnel."""
+    start = max(cave.start + FACE_BACK, index * c.CHUNK_LENGTH)
+    end = min(cave.end - FACE_BACK, (index + 1) * c.CHUNK_LENGTH)
+    if end - start < 1e-6:
+        return None
+    rows = max(2, int(math.ceil((end - start) / CAP_STEP)) + 1)
+    d = np.linspace(start, end, rows)
+    across = _across(CAP_COLUMNS, CAVE_HALF_WIDTH + WALL_RISE + 1.2)
+    x = np.asarray(land.course.centre(d))[:, None] + across[None, :]
+    dd = np.repeat(d[:, None], CAP_COLUMNS, axis=1)
+    y = np.repeat(_top_of_the_hill(land, d)[:, None], CAP_COLUMNS, axis=1)
+    y = y + 0.3 * (fbm(x / 3.0 + 2.0, dd / 3.0 + 6.0, seed=72, octaves=2) - 0.5)
+    z = origin - dd
+    positions = np.stack([x, y, z], axis=-1).reshape(-1, 3)
+    texcoords = np.stack([x, z], axis=-1).reshape(-1, 2) / GROUND_REPEAT
+    return _surface(positions, rows, CAP_COLUMNS, (0.0, 1.0, 0.0), texcoords)
+
+
+def _face(land: Landscape, cave: c.Cave, index: int, origin: float, mouth: bool) -> "Geometry | None":
+    """The face of rock a cave's mouth (or its far end) is cut in, over chunk ``index``: it
+    slopes back into the hill over :data:`FACE_BACK` metres from the arched rim of the opening to
+    the top of the hill, and is rough. Facing out of the hill: up the hill at the mouth."""
+    rim_at = cave.start if mouth else cave.end
+    reach = 1.0 if mouth else -1.0                      # which way down the hill the face goes
+    low, high = index * c.CHUNK_LENGTH, (index + 1) * c.CHUNK_LENGTH
+    ends = sorted(rim_at + reach * v * FACE_BACK for v in (0.0, 1.0))
+    first, last = max(ends[0], low), min(ends[1], high)
+    if last - first < 1e-6:
+        return None
+    v0, v1 = sorted(abs(d - rim_at) / FACE_BACK for d in (first, last))
+    rows = max(2, int(math.ceil(FACE_ROWS * (v1 - v0))) + 1)
+    v = np.linspace(v0, v1, rows)[:, None]
+    half = CAVE_HALF_WIDTH + WALL_RISE + CEILING_INTO_WALLS
+    across = _across(FACE_COLUMNS, half)[None, :]
+    held = np.clip(across, -(CAVE_HALF_WIDTH + CEILING_INTO_WALLS), CAVE_HALF_WIDTH + CEILING_INTO_WALLS)
+    rim_x = float(land.course.centre(rim_at)) + held
+    rim_y = _roof(land, rim_x, np.full_like(rim_x, min(max(rim_at, cave.start), cave.end - 1e-3)), held)
+    top_y = _top_of_the_hill(land, np.array([rim_at + reach * FACE_BACK]))[0]
+    y = rim_y + (top_y - rim_y) * v ** 0.85
+    sheet, climb = np.broadcast_arrays(across / 2.0 + 3.0, v * 6.0 - 1.0)
+    rough = fbm(sheet, climb, seed=74, octaves=3) - 0.5
+    d = rim_at + reach * (FACE_BACK * v + 1.4 * rough * np.sin(np.pi * np.clip(v, 0.0, 1.0)))
+    x = np.asarray(land.course.centre(d)) + across
     z = origin - d
-    corners = np.array([[centre - half, base, z], [centre + half, base, z],
-                        [centre + half, top, z], [centre - half, top, z]], 'f')
-    texcoords = np.stack([corners[:, 0], corners[:, 1]], axis=-1) / GROUND_REPEAT
-    return Geometry(corners, np.tile(np.array([0.0, 0.0, 1.0], 'f'), (4, 1)), texcoords.astype('f'),
-                    np.tile(np.array([1.0, 0.0, 0.0, 1.0], 'f'), (4, 1)),
-                    np.array([0, 1, 2, 0, 2, 3], np.uint32))
+    positions = np.stack([x, y, z], axis=-1).reshape(-1, 3)
+    texcoords = np.stack([x, y], axis=-1).reshape(-1, 2) / GROUND_REPEAT
+    outward = (0.0, 0.3, 1.0 if mouth else -1.0)
+    return _surface(positions, rows, FACE_COLUMNS, outward, texcoords)
+
+
+class CavePieces(NamedTuple):
+    """The meshes of a cave that lie in one chunk; None where it has none of one."""
+
+    ceiling: "Geometry | None"
+    cap: "Geometry | None"
+    mouth: "Geometry | None"
+    exit: "Geometry | None"
+
+
+def cave_pieces(land: Landscape, cave: c.Cave, index: int, origin: float = 0.0) -> CavePieces:
+    """The rock of ``cave`` in chunk ``index``: the ceiling, the top of the hill over it, and the
+    faces its mouth and its far end are cut in. z is measured from ``origin``."""
+    return CavePieces(_ceiling(land, cave, index, origin), _cap(land, cave, index, origin),
+                      _face(land, cave, index, origin, True), _face(land, cave, index, origin, False))
 
 
 def cave_parts(land: Landscape, cave: c.Cave, index: int, origin: float = 0.0
                ) -> dict[Part, list[Geometry]]:
-    """The meshes of ``cave`` that lie in chunk ``index``, by what each is made of: the ceiling,
-    the face over the mouth where the cave begins in the chunk, and the torches. Empty where the
-    cave is not in the chunk. z is measured from ``origin``."""
-    ceiling = _ceiling(land, cave, index, origin)
-    if ceiling is None:
+    """The meshes of ``cave`` that lie in chunk ``index``, by what each is made of: the rock, and
+    the torches. Empty where the cave is not in the chunk. z is measured from ``origin``."""
+    pieces = cave_pieces(land, cave, index, origin)
+    rock = [piece for piece in pieces if piece is not None]
+    if not rock:
         return {}
-    rock = [ceiling]
-    if index == c.chunk_index(cave.start):
-        rock.append(_mouth(land, cave, origin))
     parts: dict[Part, list[Geometry]] = {Part.ROCK: rock}
     start, end = index * c.CHUNK_LENGTH, (index + 1) * c.CHUNK_LENGTH
     for torch in torches(cave):

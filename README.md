@@ -43,8 +43,10 @@ The trail wanders from side to side.
 ### Caves
 
 Every two or three kilometres, after a stretch of rock country, the trail runs into a cave: the
-hill closes in over the trail, a face of rock stands over the mouth, and the way on is a tunnel
-250 to 320 m long. The tunnel leads out into more rock country or into forest, the seed's choice.
+hill closes in over the trail and the trail enters it through an arched opening in a face of rock
+that slopes back 7 m to the top of the hill. The tunnel is 250 to 320 m long, with an arched
+ceiling, and leaves through a second face the same way. It leads out into more rock country or into
+forest, the seed's choice.
 
 * The ceiling is high in places (4.4 to 7.5 m over the floor) and low in others (2.4 to 3.0 m),
   changing over 16 m. Running or sliding under a low ceiling is safe; **a jump under one is a hit**,

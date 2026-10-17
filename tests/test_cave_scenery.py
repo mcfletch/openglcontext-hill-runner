@@ -59,7 +59,7 @@ def test_a_torch_hangs_on_its_wall_at_head_height_inside_the_cave(land, cave):
 def test_the_ceiling_lies_over_the_cave_and_nowhere_else(land, cave):
     for index in chunks_of(cave):
         origin = index * c.CHUNK_LENGTH
-        ceiling = s.cave_parts(land, cave, index, origin)[s.Part.ROCK][0]
+        ceiling = s.cave_pieces(land, cave, index, origin).ceiling
         d = origin - ceiling.positions[:, 2]
         assert d.min() >= cave.start - 1e-3 and d.max() <= cave.end + 1e-3
 
@@ -67,23 +67,37 @@ def test_the_ceiling_lies_over_the_cave_and_nowhere_else(land, cave):
 def test_chunks_that_hold_no_cave_have_no_cave_meshes(land, cave):
     before = c.chunk_index(cave.start) - 3
     assert s.cave_parts(land, cave, before, origin=before * c.CHUNK_LENGTH) == {}
+    assert all(piece is None for piece in s.cave_pieces(land, cave, before, 0.0))
 
 
-def test_the_ceiling_is_where_the_course_says_it_is_and_faces_down(land, cave):
+def test_the_ceiling_is_where_the_course_says_it_is_less_its_lumps_and_its_arch_and_faces_down(land, cave):
     index = c.chunk_index((cave.start + cave.end) / 2)
     origin = index * c.CHUNK_LENGTH
-    ceiling = s.cave_parts(land, cave, index, origin)[s.Part.ROCK][0]
+    ceiling = s.cave_pieces(land, cave, index, origin).ceiling
     d = origin - ceiling.positions[:, 2]
     x = ceiling.positions[:, 0]
     over = np.asarray(land.footing(x, d)) + np.asarray(land.course.ceiling(d))
-    assert (over - ceiling.positions[:, 1]).min() >= -1e-3                  # never above it
-    assert (over - ceiling.positions[:, 1]).max() <= s.CEILING_BUMP + 0.01  # and lumpy by that much
+    hang = over - ceiling.positions[:, 1]
+    assert hang.min() >= -1e-3                                        # never above it
+    assert hang.max() <= s.CEILING_BUMP + s.VAULT * 2.0 + 0.01        # and no lower than lumps and arch allow
     assert (triangle_normals(ceiling)[:, 1] < 0).mean() > 0.97
+
+
+def test_the_ceiling_is_arched_it_comes_down_toward_the_walls(land, cave):
+    index = c.chunk_index((cave.start + cave.end) / 2)
+    origin = index * c.CHUNK_LENGTH
+    ceiling = s.cave_pieces(land, cave, index, origin).ceiling
+    d = origin - ceiling.positions[:, 2]
+    across = np.abs(ceiling.positions[:, 0] - np.asarray(land.course.centre(d)))
+    hang = (np.asarray(land.footing(ceiling.positions[:, 0], d)) + np.asarray(land.course.ceiling(d))
+            - ceiling.positions[:, 1])
+    middle, edge = hang[across < 0.3].mean(), hang[across > ls.CAVE_HALF_WIDTH].mean()
+    assert edge > middle + 0.6 * s.VAULT
 
 
 def test_the_ceiling_spans_the_corridor_and_runs_into_the_walls(land, cave):
     index = c.chunk_index((cave.start + cave.end) / 2)
-    ceiling = s.cave_parts(land, cave, index, index * c.CHUNK_LENGTH)[s.Part.ROCK][0]
+    ceiling = s.cave_pieces(land, cave, index, index * c.CHUNK_LENGTH).ceiling
     centre = float(land.course.centre((cave.start + cave.end) / 2))
     reach = np.abs(ceiling.positions[:, 0] - centre).max()
     assert reach >= ls.CAVE_HALF_WIDTH + 1.0
@@ -91,33 +105,96 @@ def test_the_ceiling_spans_the_corridor_and_runs_into_the_walls(land, cave):
 
 def test_the_ceiling_clears_a_runner_wherever_it_is_low(land, cave):
     for index in chunks_of(cave):
-        ceiling = s.cave_parts(land, cave, index, index * c.CHUNK_LENGTH)[s.Part.ROCK][0]
+        ceiling = s.cave_pieces(land, cave, index, index * c.CHUNK_LENGTH).ceiling
         d = index * c.CHUNK_LENGTH - ceiling.positions[:, 2]
         floor = np.asarray(land.footing(ceiling.positions[:, 0], d))
         near_the_trail = np.abs(ceiling.positions[:, 0] - np.asarray(land.course.centre(d))) < 1.5
         assert (ceiling.positions[near_the_trail, 1] - floor[near_the_trail]).min() > c.STAND_HEIGHT + 0.2
 
 
-# -- the mouth --------------------------------------------------------------------------
+# -- the top of the hill ----------------------------------------------------------------
 
-def test_the_mouth_is_a_face_above_the_opening_that_looks_back_up_the_hill(land, cave):
-    index = c.chunk_index(cave.start)
-    pieces = s.cave_parts(land, cave, index, index * c.CHUNK_LENGTH)[s.Part.ROCK]
-    assert len(pieces) == 2
-    face = pieces[1]
-    assert np.allclose(triangle_normals(face)[:, 2], 1.0, atol=1e-3)
-    z = index * c.CHUNK_LENGTH - cave.start
-    assert np.allclose(face.positions[:, 2], z, atol=1e-3)
-    centre = float(land.course.centre(cave.start))
-    base = float(land.footing(centre, cave.start)) + float(land.course.ceiling(cave.start))
-    assert face.positions[:, 1].min() == pytest.approx(base, abs=s.CEILING_BUMP + 0.01)
-    assert face.positions[:, 1].max() >= base + ls.WALL_OVER
+def test_the_hill_is_closed_over_the_tunnel_by_a_strip_as_high_as_its_walls(land, cave):
+    index = c.chunk_index((cave.start + cave.end) / 2)
+    origin = index * c.CHUNK_LENGTH
+    cap = s.cave_pieces(land, cave, index, origin).cap
+    d = origin - cap.positions[:, 2]
+    assert d.min() >= cave.start + s.FACE_BACK - 1e-3 and d.max() <= cave.end - s.FACE_BACK + 1e-3
+    top = s._top_of_the_hill(land, d)
+    assert np.abs(cap.positions[:, 1] - top).max() < 0.3
+    assert (cap.normals[:, 1] > 0.7).all()
 
 
-def test_only_the_chunk_the_cave_begins_in_has_a_face(land, cave):
+def test_the_cap_is_above_the_ceiling_by_the_rock_that_is_over_the_tunnel(land, cave):
     for index in chunks_of(cave):
-        pieces = s.cave_parts(land, cave, index, index * c.CHUNK_LENGTH)[s.Part.ROCK]
-        assert len(pieces) == (2 if index == c.chunk_index(cave.start) else 1)
+        cap = s.cave_pieces(land, cave, index, index * c.CHUNK_LENGTH).cap
+        if cap is None:
+            continue
+        d = index * c.CHUNK_LENGTH - cap.positions[:, 2]
+        roof = np.asarray(land.footing(land.course.centre(d), d)) + np.asarray(land.course.ceiling(d))
+        assert (cap.positions[:, 1] - roof).min() > 8.0
+
+
+# -- the faces -----------------------------------------------------------------------------
+
+def test_the_mouth_is_an_irregular_arch_in_a_face_that_slopes_back_into_the_hill(land, cave):
+    index = c.chunk_index(cave.start)
+    origin = index * c.CHUNK_LENGTH
+    face = s.cave_pieces(land, cave, index, origin).mouth
+    z_rim = origin - cave.start
+    # It begins at the rim, at the mouth, and ends FACE_BACK metres down the hill.
+    assert face.positions[:, 2].max() == pytest.approx(z_rim, abs=1.6)
+    assert z_rim - face.positions[:, 2].min() > s.FACE_BACK - 1.6
+    normals = triangle_normals(face)
+    assert (normals[:, 2] > 0.1).mean() > 0.9 and (normals[:, 1] > 0.0).mean() > 0.9   # out and up
+    columns = s.FACE_COLUMNS
+    rim = face.positions.reshape(-1, columns, 3)[0]
+    assert rim[:, 1].max() - rim[:, 1].min() > 0.8                     # an arch, not a straight edge
+    assert np.ptp(face.positions[:, 2]) > s.FACE_BACK * 0.8            # not a plane
+
+
+def test_the_rim_of_the_mouth_is_the_front_edge_of_the_ceiling_so_no_sky_shows_between(land, cave):
+    index = c.chunk_index(cave.start)
+    origin = index * c.CHUNK_LENGTH
+    pieces = s.cave_pieces(land, cave, index, origin)
+    rim = pieces.mouth.positions.reshape(-1, s.FACE_COLUMNS, 3)[0]
+    front = pieces.ceiling.positions.reshape(-1, s.CEILING_COLUMNS, 3)[0]
+    inside = np.abs(front[:, 0] - front[:, 0].mean()) < ls.CAVE_HALF_WIDTH * 0.9
+    for x, y in zip(front[inside, 0], front[inside, 1], strict=True):
+        assert abs(np.interp(x, rim[:, 0], rim[:, 1]) - y) < 0.15
+
+
+def test_the_top_of_the_face_meets_the_top_of_the_hill(land, cave):
+    index = c.chunk_index(cave.start)
+    origin = index * c.CHUNK_LENGTH
+    pieces = s.cave_pieces(land, cave, index, origin)
+    face = pieces.mouth
+    top = face.positions.reshape(-1, s.FACE_COLUMNS, 3)[-1]
+    first = pieces.cap.positions[:, 2] > pieces.cap.positions[:, 2].max() - 0.01
+    assert abs(float(top[:, 1].mean()) - float(pieces.cap.positions[first, 1].mean())) < 0.5
+
+
+def test_the_far_end_has_a_face_too_which_looks_out_down_the_hill(land, cave):
+    index = c.chunk_index(cave.end)
+    origin = index * c.CHUNK_LENGTH
+    face = s.cave_pieces(land, cave, index, origin).exit
+    assert face is not None
+    normals = triangle_normals(face)
+    assert (normals[:, 2] < -0.1).mean() > 0.9 and (normals[:, 1] > 0.0).mean() > 0.9
+    assert face.positions[:, 2].min() == pytest.approx(origin - cave.end, abs=1.6)
+
+
+def test_a_face_is_made_in_whole_across_the_chunks_it_runs_over(land):
+    land = ls.Landscape(c.Course(1))
+    for cave in land.course.caves_between(0.0, 60000.0)[:12]:
+        for rim, name in ((cave.start, 'mouth'), (cave.end, 'exit')):
+            spans = []
+            for index in range(c.chunk_index(rim) - 1, c.chunk_index(rim) + 2):
+                face = getattr(s.cave_pieces(land, cave, index, index * c.CHUNK_LENGTH), name)
+                if face is not None:
+                    spans.append(index * c.CHUNK_LENGTH - face.positions[:, 2])
+            reached = np.concatenate(spans)
+            assert reached.max() - reached.min() > s.FACE_BACK - 1.6, (cave, name)
 
 
 # -- the torch meshes -------------------------------------------------------------------
