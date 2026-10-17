@@ -516,3 +516,52 @@ def test_the_haze_hides_everything_before_the_edge_of_the_hill_that_is_made(tmp_
                             text=True, timeout=240)
     assert 'Traceback' not in result.stderr, result.stderr[-2000:]
     assert 'HAZE 1 True' in result.stdout.splitlines(), result.stdout[-500:]
+
+
+UNDERGROUND = '''
+from OpenGLContext import renderoptions
+from openglcontext_hill_runner import atmosphere
+from openglcontext_hill_runner.app import RunnerContext
+
+
+class Under(RunnerContext):
+    seed = 1
+    demo = True
+    sound = False
+    photos = False
+    forest = False
+    frames = 0
+
+    def _start(self, seed):
+        super()._start(seed)
+        cave = self.land.course.caves_between(0.0, 20000.0)[0]
+        self.session.game.runner.distance = (cave.start + cave.end) / 2 - 40.0
+        self._breathe()
+
+    def OnIdle(self, *arguments):
+        type(self).frames += 1
+        if self.frames == 30:
+            print('AIR', round(self._fog.visibilityRange), round(self._sun.intensity, 2),
+                  round(float(renderoptions.definition(self).iblIntensity), 3),
+                  self.session.game.damage, flush=True)
+        return super().OnIdle(*arguments)
+
+
+Under.ContextMainLoop(size=(320, 180))
+'''
+
+
+@pytest.mark.needs_gl
+@pytest.mark.skipif(not _has_gl(), reason="no GL display available")
+def test_in_a_cave_the_fog_closes_in_and_the_sun_and_the_sky_go_dim(tmp_path):
+    env = dict(os.environ)
+    env.update(OPENGLCONTEXT_PROFILE="core", OPENGLCONTEXT_HIDDEN="1",
+               OPENGLCONTEXT_AUTO_EXIT_FRAMES="40")
+    script = tmp_path / "under.py"
+    script.write_text(UNDERGROUND)
+    result = subprocess.run([sys.executable, str(script)], env=env, capture_output=True,
+                            text=True, timeout=240)
+    assert 'Traceback' not in result.stderr, result.stderr[-2000:]
+    line = next(line for line in result.stdout.splitlines() if line.startswith('AIR'))
+    _, fog, sun, ibl, damage = line.split()
+    assert int(fog) == 150 and float(sun) < 0.6 and float(ibl) < 0.1 and int(damage) == 0

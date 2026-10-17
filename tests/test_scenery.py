@@ -14,7 +14,7 @@ from openglcontext_hill_runner import scenery as s
 
 @pytest.fixture(scope='module')
 def land():
-    return ls.Landscape(c.Course(3))
+    return ls.Landscape(c.Course(3, caves=False))
 
 
 def valid(geometry):
@@ -114,7 +114,7 @@ def test_a_path_that_does_not_run_through_a_chunk_has_no_strip(land):
 
 
 def test_the_paths_of_a_fork_run_the_length_of_it_and_thin_to_nothing_at_the_ends(land):
-    fork = next(f for f in land.course.forks_between(0.0, 20000.0) if f.side == 1)
+    fork = next(f for f in land.course.forks_between(0.0, 9000.0) if f.side == 1)
     lane = fork.lanes[0]
     first, last = c.chunk_index(fork.start), c.chunk_index(fork.end)
     strips = [s.path(land, lane, i) for i in range(first, last + 1)]
@@ -130,7 +130,7 @@ def test_the_paths_of_a_fork_run_the_length_of_it_and_thin_to_nothing_at_the_end
 
 
 def test_the_paths_of_a_fork_are_drawn_away_from_the_trail(land):
-    fork = next(f for f in land.course.forks_between(0.0, 20000.0) if f.side == 1)
+    fork = next(f for f in land.course.forks_between(0.0, 9000.0) if f.side == 1)
     middle = (fork.start + fork.end) / 2
     strip = s.path(land, fork.lanes[0], c.chunk_index(middle))
     z = -strip.positions[:, 2]
@@ -400,3 +400,32 @@ def test_no_part_of_an_obstacle_reaches_the_body_of_a_runner_in_a_lane_it_does_n
 def test_a_crevice_is_cut_into_the_ground_and_stands_nothing_on_it():
     crevice = c.Obstacle(c.Kind.CREVICE, 0, 2000.0, c.LANE_COUNT)
     assert s.obstacle(ls.Landscape(c.Course(3)), crevice) == {}
+
+
+def test_the_ground_texture_is_on_the_plan_in_the_open_and_runs_up_the_walls_of_a_cave():
+    land = ls.Landscape(c.Course(1))
+    cave = land.course.caves_between(0.0, 60000.0)[0]
+    columns = len(s._columns())
+    open_index = c.chunk_index(cave.start - 400.0)
+    ground = s.terrain(land, open_index, open_index * c.CHUNK_LENGTH)
+    assert np.array_equal(ground.texcoords[:, 0] * s.GROUND_REPEAT, ground.positions[:, 0])
+    index = c.chunk_index((cave.start + cave.end) / 2)
+    ground = s.terrain(land, index, index * c.CHUNK_LENGTH)
+    u = ground.texcoords[:, 0].reshape(-1, columns) * s.GROUND_REPEAT
+    x = ground.positions[:, 0].reshape(-1, columns)
+    y = ground.positions[:, 1].reshape(-1, columns)
+    slope = np.abs(np.gradient(y, x[0], axis=1))
+    steep = slope > 2.0
+    assert steep.any()
+    # Up a wall the coordinate runs as fast as the surface does, which is faster than the plan.
+    rate = np.abs(np.gradient(u, x[0], axis=1))
+    assert (rate[steep] >= 0.9 * np.sqrt(1.0 + slope[steep] ** 2)).mean() > 0.9
+    assert (rate[steep] > 1.5).all()
+
+
+def test_neighbouring_tiles_agree_on_the_texture_where_they_meet(land):
+    a, b = s.terrain(land, 8, 8 * c.CHUNK_LENGTH), s.terrain(land, 9, 9 * c.CHUNK_LENGTH)
+    columns = len(s._columns())
+    ua = a.texcoords[:, 0].reshape(-1, columns)[-1]
+    ub = b.texcoords[:, 0].reshape(-1, columns)[0]
+    assert np.allclose(ua, ub, atol=1e-4)

@@ -17,15 +17,16 @@ import enum
 import math
 import threading
 from collections import OrderedDict
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
+from OpenGLContext.noise import fbm
 from OpenGLContext.scenegraph import natural
 from OpenGLContext.scenegraph import surfaces as sf
 from OpenGLContext.scenegraph.surfaces import Geometry
 
 from openglcontext_hill_runner import course as c
-from openglcontext_hill_runner.landscape import Landscape
+from openglcontext_hill_runner.landscape import CAVE_HALF_WIDTH, WALL_OVER, WALL_RISE, Landscape
 
 #: The land reaches this far to either side of the middle of the hill, in metres.
 HALF_WIDTH = 100.0
@@ -60,6 +61,22 @@ HEDGE_WIDTH = 0.14
 HEDGE_HEIGHT = 0.7
 #: Metres between the cross-sections of a dry-stone wall.
 WALL_STEP = 0.25
+#: Torches stand every TORCH_EVERY metres along a cave, the first TORCH_FIRST metres in from the
+#: mouth and the last at least TORCH_LAST_CLEAR short of the end, on alternate walls, TORCH_HEIGHT
+#: above the floor and TORCH_INSET out of the wall's face. The flame stands FLAME_RISE above where
+#: the bracket is fixed.
+TORCH_EVERY = 18.0
+TORCH_FIRST = 10.0
+TORCH_LAST_CLEAR = 6.0
+TORCH_HEIGHT = 1.9
+TORCH_INSET = 0.12
+FLAME_RISE = 0.5
+#: The ceiling is a grid CEILING_STEP metres between rows and CEILING_COLUMNS across the corridor
+#: and a little into its walls, and its underside hangs in lumps up to CEILING_BUMP metres deep.
+CEILING_STEP = 1.0
+CEILING_COLUMNS = 15
+CEILING_BUMP = 0.3
+CEILING_INTO_WALLS = 1.6
 #: Trees of the simple kind per side per chunk, and how close to the paths the nearest may stand.
 TREES_PER_SIDE = 12
 TREE_NEAREST = 2.2
@@ -73,6 +90,9 @@ class Part(enum.Enum):
     BARK = 'bark'
     CUT = 'cut'
     FOLIAGE = 'foliage'
+    #: The iron of a torch's bracket, and its flame, which gives light of its own.
+    TORCH = 'torch'
+    FLAME = 'flame'
 
 
 # -- the land ---------------------------------------------------------------------
@@ -151,6 +171,26 @@ def _up_normals(slope_x: np.ndarray, slope_d: np.ndarray) -> np.ndarray:
     return unit.astype('f')
 
 
+def _along_the_face(land: Landscape, x: np.ndarray, height: np.ndarray,
+                    d: np.ndarray) -> np.ndarray:
+    """Where each column of a row of the ground is in its texture, across the hill.
+
+    On the plan, ``x``, except under the hill about a cave, whose walls are near enough vertical
+    for the plan to stretch one row of the texture up them: there the distance is measured along
+    the surface from the trail's middle outward. Each row is measured from its own middle, so no
+    row's texture drifts against its neighbour's, and a tile agrees with the next where they meet.
+    """
+    stands = land.hill(d[:, 0])
+    if not stands.any():
+        return x
+    step = np.diff(x, axis=1)
+    excess = np.concatenate([np.zeros((len(x), 1)),
+                             np.cumsum(np.hypot(step, np.diff(height, axis=1)) - step, axis=1)], axis=1)
+    middle = np.asarray(land.course.centre(d[:, 0]))
+    at_middle = np.array([np.interp(m, row, e) for m, row, e in zip(middle, x, excess, strict=True)])
+    return np.asarray(x + stands[:, None] * (excess - at_middle[:, None]))
+
+
 def terrain(land: Landscape, index: int, origin: float = 0.0) -> Geometry:
     """The land of chunk ``index``, with z measured from ``origin``."""
     xs = _columns()
@@ -164,7 +204,7 @@ def terrain(land: Landscape, index: int, origin: float = 0.0) -> Geometry:
     dd, x = dd[1:-1], x[1:-1]
     z = origin - dd
     positions = np.stack([x, height, z], axis=-1).reshape(-1, 3).astype('f')
-    texcoords = np.stack([x, z], axis=-1).reshape(-1, 2) / GROUND_REPEAT
+    texcoords = np.stack([_along_the_face(land, x, height, dd), z], axis=-1).reshape(-1, 2) / GROUND_REPEAT
     return Geometry(positions, _up_normals(slope_x, slope_d).reshape(-1, 3),
                     texcoords.astype('f'),
                     np.tile(np.array([1.0, 0.0, 0.0, 1.0], 'f'), (len(positions), 1)),
@@ -475,3 +515,119 @@ def rocks(land: Landscape, chunk: c.Chunk, origin: float = 0.0) -> Geometry | No
                                                     float(origin - ed[j])))
              for j in range(len(es)) if clear[j]]
     return sf.merge(parts) if parts else None
+
+
+# -- caves -------------------------------------------------------------------------
+
+class Torch(NamedTuple):
+    """A torch on the wall of a cave: how far down the hill, and which wall (-1 left, +1 right)."""
+
+    distance: float
+    side: int
+
+
+def torches(cave: c.Cave) -> list[Torch]:
+    """The torches of a cave, every :data:`TORCH_EVERY` metres on alternate walls."""
+    found = []
+    d, side = cave.start + TORCH_FIRST, -1
+    while d <= cave.end - TORCH_LAST_CLEAR:
+        found.append(Torch(d, side))
+        d, side = d + TORCH_EVERY, -side
+    return found
+
+
+def torch_place(land: Landscape, torch: Torch) -> tuple[float, float, float]:
+    """Where a torch's bracket is fixed to the wall: ``x``, ``y`` and its distance down the hill."""
+    d = torch.distance
+    x = float(land.course.centre(d)) + torch.side * (CAVE_HALF_WIDTH - TORCH_INSET)
+    return x, float(land.footing(x, d)) + TORCH_HEIGHT, d
+
+
+def _torch(side: int) -> tuple[Geometry, Geometry]:
+    """A torch at its fixing: an iron arm leaning out from the wall, and the flame over it."""
+    arm = sf.placed(sf.cylinder(0.03, 0.5, sides=10), (0.0, 0.22, 0.0), (0.0, 0.0, 1.0, 0.0))
+    cup = sf.placed(sf.cylinder(0.07, 0.12, sides=12), (0.0, 0.46, 0.0))
+    flame = sf.placed(sf.sphere(0.075, sides=12), (0.0, FLAME_RISE - 0.04, 0.0))
+    lean = (0.0, 0.0, 1.0, -side * 0.25)
+    return (sf.placed(sf.merge([arm, cup]), (0.0, 0.0, 0.0), lean),
+            sf.placed(flame, (0.0, 0.0, 0.0), lean))
+
+
+def _ceiling(land: Landscape, cave: c.Cave, index: int, origin: float) -> "Geometry | None":
+    """The ceiling of ``cave`` over chunk ``index``: a sheet over the corridor and into the
+    walls, hanging at the course's ceiling height, in lumps. z is measured from ``origin``."""
+    start = max(cave.start, index * c.CHUNK_LENGTH)
+    end = min(cave.end, (index + 1) * c.CHUNK_LENGTH)
+    if end - start < 1e-6:
+        return None
+    rows = max(2, int(math.ceil((end - start) / CEILING_STEP)) + 1)
+    d = np.linspace(start, end, rows)
+    across = np.linspace(-1.0, 1.0, CEILING_COLUMNS) * (CAVE_HALF_WIDTH + CEILING_INTO_WALLS)
+    x = np.asarray(land.course.centre(d))[:, None] + across[None, :]
+    dd = np.repeat(d[:, None], CEILING_COLUMNS, axis=1)
+    roof = np.asarray(land.footing(x, dd)) + np.asarray(land.course.ceiling(dd))
+    lumps = fbm(x / 1.7 + 4.0, dd / 1.7 - 9.0, seed=71, octaves=3)
+    # Lumps hang, and they hang less over the corridor than where the roof meets the walls.
+    y = roof - CEILING_BUMP * lumps
+    slope_x = np.gradient(y, across, axis=1)
+    slope_d = np.gradient(y, d, axis=0)
+    z = origin - dd
+    positions = np.stack([x, y, z], axis=-1).reshape(-1, 3).astype('f')
+    texcoords = np.stack([x, z], axis=-1).reshape(-1, 2) / GROUND_REPEAT
+    triangles = _grid_indices(rows, CEILING_COLUMNS).reshape(-1, 3)[:, [0, 2, 1]]
+    return Geometry(positions, -_up_normals(slope_x, slope_d).reshape(-1, 3), texcoords.astype('f'),
+                    np.tile(np.array([1.0, 0.0, 0.0, 1.0], 'f'), (len(positions), 1)),
+                    triangles.ravel().astype(np.uint32))
+
+
+def _mouth(land: Landscape, cave: c.Cave, origin: float) -> Geometry:
+    """The face of rock over a cave's opening, looking out the way the trail comes from: it
+    runs from the ceiling at the mouth up to the top of the hill about it."""
+    d = cave.start
+    centre = float(land.course.centre(d))
+    half = CAVE_HALF_WIDTH + WALL_RISE
+    base = float(land.footing(centre, d)) + float(land.course.ceiling(d))
+    top = base + WALL_OVER + 0.5
+    z = origin - d
+    corners = np.array([[centre - half, base, z], [centre + half, base, z],
+                        [centre + half, top, z], [centre - half, top, z]], 'f')
+    texcoords = np.stack([corners[:, 0], corners[:, 1]], axis=-1) / GROUND_REPEAT
+    return Geometry(corners, np.tile(np.array([0.0, 0.0, 1.0], 'f'), (4, 1)), texcoords.astype('f'),
+                    np.tile(np.array([1.0, 0.0, 0.0, 1.0], 'f'), (4, 1)),
+                    np.array([0, 1, 2, 0, 2, 3], np.uint32))
+
+
+def cave_parts(land: Landscape, cave: c.Cave, index: int, origin: float = 0.0
+               ) -> dict[Part, list[Geometry]]:
+    """The meshes of ``cave`` that lie in chunk ``index``, by what each is made of: the ceiling,
+    the face over the mouth where the cave begins in the chunk, and the torches. Empty where the
+    cave is not in the chunk. z is measured from ``origin``."""
+    ceiling = _ceiling(land, cave, index, origin)
+    if ceiling is None:
+        return {}
+    rock = [ceiling]
+    if index == c.chunk_index(cave.start):
+        rock.append(_mouth(land, cave, origin))
+    parts: dict[Part, list[Geometry]] = {Part.ROCK: rock}
+    start, end = index * c.CHUNK_LENGTH, (index + 1) * c.CHUNK_LENGTH
+    for torch in torches(cave):
+        if start <= torch.distance < end:
+            x, y, d = torch_place(land, torch)
+            arm, flame = _torch(torch.side)
+            position = (x, y, origin - d)
+            parts.setdefault(Part.TORCH, []).append(sf.placed(arm, position))
+            parts.setdefault(Part.FLAME, []).append(sf.placed(flame, position))
+    return parts
+
+
+def cave_lights(land: Landscape, cave: c.Cave, index: int, origin: float = 0.0
+                ) -> list[tuple[float, float, float]]:
+    """Where the lights of the torches of ``cave`` in chunk ``index`` hang, as the tile's own
+    coordinates have them: at each flame."""
+    start, end = index * c.CHUNK_LENGTH, (index + 1) * c.CHUNK_LENGTH
+    found = []
+    for torch in torches(cave):
+        if start <= torch.distance < end:
+            x, y, d = torch_place(land, torch)
+            found.append((x, y + FLAME_RISE, origin - d))
+    return found

@@ -38,6 +38,23 @@ ROCK_CLEAR = 1.0
 ROCK_FADE = 1.5
 #: How high the bare rock of rock country stands above the land, in metres.
 ROCK_HEIGHT = 0.7
+#: A cave's corridor is this wide from the trail's middle, its walls rise over WALL_RISE
+#: metres to WALL_OVER above the ceiling, and the hill gathers about it over MOUTH_RISE
+#: metres before its mouth and after its end.
+CAVE_HALF_WIDTH = 2.6
+WALL_RISE = 2.5
+WALL_OVER = 9.0
+MOUTH_RISE = 22.0
+#: Rock country is forced this far before a cave and the way out blends to its country over
+#: OUT_BLEND metres past the end; the force fades over the CAVE_FADE before and after.
+CAVE_LEAD = 200.0
+CAVE_FADE = 120.0
+OUT_BLEND = 100.0
+OUT_HOLD = 250.0
+#: A crevice is cut this deep into the floor, with edges this sharp, over the width of its
+#: obstacle, and fades out across the walls.
+CREVICE_DEPTH = 2.6
+CREVICE_EDGE = 0.35
 FIRST_ZONE = 600.0
 ZONE_LENGTH = (320.0, 640.0)
 
@@ -201,7 +218,7 @@ class Landscape:
         x, d = np.broadcast_arrays(np.asarray(x, dtype=np.float64),
                                    np.asarray(distance, dtype=np.float64))
         shape, xf, df = x.shape, x.ravel(), d.ravel()
-        out = self._trail_weights(df)
+        out = self._cave_country(self._trail_weights(df), df)
         fork = self.course.fork_state(df)
         k, start, end, side, running, sep = fork
         if running.any():
@@ -217,25 +234,65 @@ class Landscape:
             out = out * (1.0 - f) + branch * f
         return out.reshape((len(_BIOMES),) + shape)
 
+    def _cave_country(self, out: np.ndarray, d: np.ndarray) -> np.ndarray:
+        """``out``, the weights of the countries along the trail, with rock country forced on
+        the way to every cave and through it, and the country the cave leads to blended in
+        past its end."""
+        cave = self.course.cave_state(d)
+        force = (c.smooth((d - (cave.start - CAVE_LEAD)) / (CAVE_FADE))
+                 * c.smooth(((cave.end + OUT_HOLD + CAVE_FADE) - d) / CAVE_FADE))
+        force = np.where(d >= c.CAVE_FIRST - CAVE_LEAD, force, 0.0)
+        if not force.any():
+            return out
+        out_of = c.smooth((d - cave.end) / OUT_BLEND)
+        into = np.where(cave.into_rock > 0, Biome.ROCKS.value, Biome.FOREST.value)
+        columns = np.arange(len(d))
+        forced = np.zeros_like(out)
+        forced[Biome.ROCKS.value] += 1.0 - out_of
+        np.add.at(forced, (into, columns), out_of)
+        return np.asarray(out * (1.0 - force) + forced * force)
+
+    def hill(self, distance: Any) -> np.ndarray:
+        """How much of a cave's hill stands at each distance, from 0 to 1."""
+        stands, _roof = self._hill(np.atleast_1d(np.asarray(distance, dtype=np.float64)).ravel())
+        return np.asarray(stands)
+
+    def _hill(self, d: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+        """How much of a cave's hill stands at each distance, 0 to 1, and how high the ceiling
+        is, at the nearest place in the cave to it."""
+        cave = self.course.cave_state(d)
+        rise = (c.smooth((d - (cave.start - MOUTH_RISE)) / MOUTH_RISE)
+                * c.smooth(((cave.end + MOUTH_RISE) - d) / MOUTH_RISE))
+        stands = np.where(d >= c.CAVE_FIRST - MOUTH_RISE, rise, 0.0)
+        roof = np.asarray(self.course.ceiling(np.clip(d, cave.start, cave.end - 1e-3)))
+        return stands, roof
+
+    def _densely(self, values: "list[float]", x: Any, distance: Any) -> np.ndarray:
+        """How thickly something grows, blended from the countries, and none under a cave's hill."""
+        x, d = np.broadcast_arrays(np.asarray(x, dtype=np.float64),
+                                   np.asarray(distance, dtype=np.float64))
+        stands, _roof = self._hill(d.ravel())
+        return self._blend(values, x, d) * (1.0 - stands.reshape(d.shape))
+
     def _blend(self, values: "list[float]", x: Any, distance: Any) -> np.ndarray:
         return _mix(values, self.weights(x, distance))
 
     def tree_density(self, x: Any, distance: Any) -> np.ndarray:
         """How thick trees grow at each point, as a multiple of a forest's."""
-        return self._blend([COUNTRY[b].trees for b in _BIOMES], x, distance)
+        return self._densely([COUNTRY[b].trees for b in _BIOMES], x, distance)
 
     def cover_density(self, x: Any, distance: Any) -> np.ndarray:
         """How thick the ferns, nettles and flowers grow at each point, as a multiple of a
         forest's."""
-        return self._blend([COUNTRY[b].cover for b in _BIOMES], x, distance)
+        return self._densely([COUNTRY[b].cover for b in _BIOMES], x, distance)
 
     def grass_density(self, x: Any, distance: Any) -> np.ndarray:
         """How thick the grass grows at each point, as a multiple of a forest's."""
-        return self._blend([COUNTRY[b].grass for b in _BIOMES], x, distance)
+        return self._densely([COUNTRY[b].grass for b in _BIOMES], x, distance)
 
     def rock_density(self, x: Any, distance: Any) -> np.ndarray:
         """How many rocks lie about at each point, as a multiple of a forest's."""
-        return self._blend([COUNTRY[b].rocks for b in _BIOMES], x, distance)
+        return self._densely([COUNTRY[b].rocks for b in _BIOMES], x, distance)
 
     def conifer_share(self, x: Any, distance: Any) -> np.ndarray:
         """The share of the trees at each point that are conifers, from 0 to 1."""
@@ -266,8 +323,9 @@ class Landscape:
         worn = TRAIL_RELIEF + (1.0 - TRAIL_RELIEF) * c.smooth((gap - FLAT_HALF_WIDTH / 2) / 2.0)
         return np.asarray(worn * scale * (HUMMOCK_HEIGHT * hummocks + LUMP_HEIGHT * lumps))
 
-    def height(self, x: Any, distance: Any) -> np.ndarray:
-        """Height of the land at ``x`` across the hill and ``distance`` down it."""
+    def height(self, x: Any, distance: Any, crevices: bool = True) -> np.ndarray:
+        """Height of the land at ``x`` across the hill and ``distance`` down it, with the
+        crevices cut into the floor of a cave unless ``crevices`` is false."""
         x, d = np.broadcast_arrays(np.asarray(x, dtype=np.float64),
                                    np.asarray(distance, dtype=np.float64))
         shape = x.shape
@@ -282,7 +340,43 @@ class Landscape:
         height: np.ndarray = c.ground_height(df) + bank * away * form + self._relief(xf, df, gap, scale)
         height += self._character(xf, df, gap, w)
         height += self._bare_rock(xf, df, gap, w)
+        height += self._cave_walls(xf, df)
+        if crevices:
+            height -= self._crevices(xf, df)
         return np.asarray(height.reshape(shape))
+
+    def footing(self, x: Any, distance: Any) -> np.ndarray:
+        """Where a runner's feet stand: the height of the land with no crevice cut in it, since
+        a runner crosses a crevice in the air and does not follow the floor down."""
+        return self.height(x, distance, crevices=False)
+
+    def _cave_walls(self, x: np.ndarray, d: np.ndarray) -> np.ndarray:
+        """The hill that stands about a cave: the land beside its trail rises over WALL_RISE
+        metres to WALL_OVER above the ceiling, so the ceiling is inside it."""
+        stands, roof = self._hill(d)
+        if not stands.any():
+            return np.zeros_like(x)
+        across = np.abs(x - np.asarray(self.course.centre(d)))
+        return np.asarray(stands * (roof + WALL_OVER) * c.smooth((across - CAVE_HALF_WIDTH) / WALL_RISE))
+
+    def _crevices(self, x: np.ndarray, d: np.ndarray) -> np.ndarray:
+        """How far the floor is cut away at each point by the crevices of a cave."""
+        out = np.zeros_like(x)
+        stands, _roof = self._hill(d)
+        if not stands.any():
+            return out
+        wanted = stands > 0.0
+        found = [o.distance for o in self.course.obstacles_between(float(d[wanted].min()) - 3.0,
+                                                                   float(d[wanted].max()) + 3.0)
+                 if o.kind is c.Kind.CREVICE]
+        if not found:
+            return out
+        half = c.DEPTH[c.Kind.CREVICE] / 2.0
+        along = np.zeros_like(x)
+        for at in found:
+            along = np.maximum(along, c.smooth((half - np.abs(d - at)) / CREVICE_EDGE))
+        across = np.abs(x - np.asarray(self.course.centre(d)))
+        return np.asarray(CREVICE_DEPTH * along * (1.0 - c.smooth((across - CAVE_HALF_WIDTH) / 1.0)))
 
     def _bare_rock(self, x: np.ndarray, d: np.ndarray, gap: np.ndarray,
                    w: np.ndarray) -> np.ndarray:

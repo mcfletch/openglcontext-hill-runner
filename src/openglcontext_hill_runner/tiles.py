@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 from OpenGLContext.loaders.tiles3d.boundingvolume import BoxBV
-from OpenGLContext.scenegraph.basenodes import Appearance, Group, Shape
+from OpenGLContext.scenegraph.basenodes import Appearance, Group, PointLight, Shape
 from OpenGLContext.scenegraph.pbrmesh import PBRMesh
 from OpenGLContext.scenegraph.surfaces import Geometry, merge
 
@@ -34,6 +34,12 @@ DEPTH_BELOW = 6.0
 OVERLAY_LIFT = 0.012
 #: A layer is drawn over a tile where its weight reaches this anywhere.
 OVERLAY_FROM = 0.04
+#: A torch's light: its colour, how bright, and how far it reaches, in metres. The light is of the
+#: flame and does not throw shadows: a shadow map for each torch of a cave would cost more than
+#: the cave.
+TORCH_COLOUR = (1.0, 0.58, 0.26)
+TORCH_INTENSITY = 2.5
+TORCH_RADIUS = 16.0
 
 
 @dataclass(frozen=True)
@@ -121,9 +127,15 @@ class HillTiles:
             if foliage is not None and trunks is not None:
                 by_part.setdefault(s.Part.FOLIAGE, []).append(foliage)
                 by_part.setdefault(s.Part.BARK, []).append(trunks)
+        for cave in self.course.caves_between(chunk.start, chunk.start + c.CHUNK_LENGTH):
+            for part, pieces in s.cave_parts(land, cave, key, origin).items():
+                by_part.setdefault(part, []).extend(pieces)
+            for at in s.cave_lights(land, cave, key, origin):
+                nodes.append(PointLight(location=at, color=TORCH_COLOUR, intensity=TORCH_INTENSITY,
+                                        radius=TORCH_RADIUS, shadows=False))
         for part, geometries in by_part.items():
             merged = merge(geometries)
-            nodes.append(self._node(merged, look.parts[part], casts=True))
+            nodes.append(self._node(merged, look.parts[part], casts=part is not s.Part.FLAME))
             size += _bytes(merged)
 
         group = Group()

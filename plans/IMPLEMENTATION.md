@@ -28,6 +28,11 @@
 - Credits printed at start and shown from the menu.
 - Damage: three hits end a run, a hit knocks the runner down for 1.3 s (the Roll clip) and resets the speed, 500 m without one heals one; edge shading from the
   engine's `DamageIndicator` (`level`, `hurt_all`). Main screen with Play and Demo.
+- Caves: `Course.caves` (a cave takes the place of a fork), `ceiling`, `jump_clear`, `Kind.CREVICE`; the land beside
+  the trail rises into walls, rock country is forced in and out of a cave, crevices are cut into the floor
+  (`Landscape.footing` is where feet stand); ceiling, mouth face and torches are tile meshes with a point light
+  at each flame; `atmosphere` darkens the sun, the environment light and the fog; the chase camera ducks.
+  The engine binds the nearest lights when a scene has more than the shader's slots.
 - Music: Medieval: Market Day (CC0), a faster folk loop than Virtual Rush.
 
 ## Open

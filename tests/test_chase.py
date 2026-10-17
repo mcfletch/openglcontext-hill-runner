@@ -98,3 +98,71 @@ def test_the_view_turns_further_on_a_path_that_is_drawing_away():
     body = r.Runner(world, lane=3)
     body.distance = fork.start + 60.0
     assert chase.Chase(body).heading() > 0.15
+
+
+# -- under a ceiling --------------------------------------------------------------------
+
+def camera_top(follower, body):
+    """How high the camera is above the floor of the path at the runner, and the lowest the
+    ceiling is from the camera to a few metres ahead of it."""
+    target = follower.advance(1 / 60)
+    up = follower.camera_offset()[1]
+    camera_y = target[1] + up
+    world = body.course
+    along = body.distance + chase.LOOK_AHEAD - chase.CAMERA_BACK + np.linspace(0.0, chase.AHEAD_OF_CAMERA, 6)
+    roof = min(float(c.ground_height(d)) + float(world.ceiling(d)) for d in along)
+    return camera_y, roof
+
+
+def low_and_high_places(world):
+    cave = world.caves_between(0.0, 60000.0)[0]
+    d = np.linspace(cave.start + 20.0, cave.end - 60.0, 400)
+    roof = np.asarray(world.ceiling(d))
+    return float(d[roof.argmin()]), float(d[roof.argmax()])
+
+
+def test_in_the_open_the_camera_stands_where_it_always_has(body):
+    body.distance = 200.0
+    follower = chase.Chase(body)
+    follower.advance(1 / 60)
+    assert follower.camera_offset()[1] == pytest.approx(chase.CAMERA_UP)
+
+
+def test_the_camera_stays_below_a_low_ceiling_and_above_the_runners_head():
+    world = c.Course(1)
+    low, _high = low_and_high_places(world)
+    body = r.Runner(world)
+    body.distance = low
+    follower = chase.Chase(body)
+    for _ in range(3):
+        top, roof = camera_top(follower, body)
+    assert top < roof - chase.CEILING_CLEARANCE + 0.05
+    assert top > float(c.ground_height(low)) + c.STAND_HEIGHT * 0.9
+
+
+def test_under_a_high_ceiling_the_camera_is_where_it_is_in_the_open():
+    world = c.Course(1)
+    _low, high = low_and_high_places(world)
+    body = r.Runner(world)
+    body.distance = high
+    follower = chase.Chase(body)
+    for _ in range(300):
+        follower.advance(1 / 60)
+    assert follower.camera_offset()[1] == pytest.approx(chase.CAMERA_UP)
+
+
+def test_the_camera_is_never_through_the_ceiling_on_the_way_in_and_rises_gently_on_the_way_out():
+    world = c.Course(1)
+    cave = world.caves_between(0.0, 60000.0)[0]
+    body = r.Runner(world)
+    body.distance = cave.start - 30.0
+    follower = chase.Chase(body)
+    ups = []
+    while body.distance < cave.end + 30.0:
+        body.distance += 24.0 / 60
+        top, roof = camera_top(follower, body)
+        assert top < roof - chase.CEILING_CLEARANCE + 0.05 or follower.camera_offset()[1] <= chase.MIN_UP
+        ups.append(follower.camera_offset()[1])
+    rises = np.diff(ups)
+    assert min(ups) < chase.CAMERA_UP and ups[-1] == pytest.approx(chase.CAMERA_UP, abs=0.05)
+    assert rises.max() <= chase.RISE_RATE * chase.CAMERA_UP / 60 + 1e-9

@@ -100,5 +100,5 @@ class Session:
         lean = -HOP_LEAN * max(-1.0, min(1.0, sideways / (c.LANE_WIDTH / HOP_TIME)))
         return Frame(
             dt, cues.pose_for(game), sounds, self.chase.advance(dt), self.chase.camera_offset(),
-            (runner.x, float(self.land.height(runner.x, d)) + runner.height, -d),
+            (runner.x, float(self.land.footing(runner.x, d)) + runner.height, -d),
             self.chase.heading(), -math.atan(fall) * SLOPE_LEAN, lean, events)

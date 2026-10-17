@@ -9,7 +9,7 @@ from openglcontext_hill_runner.landscape import Biome, Layer
 
 @pytest.fixture(scope='module')
 def land():
-    return ls.Landscape(c.Course(3))
+    return ls.Landscape(c.Course(3, caves=False))
 
 
 def dominant(land, x, d):
@@ -21,14 +21,14 @@ def on_the_trail(land, d):
 
 
 def test_the_run_starts_in_forest_and_passes_through_every_country():
-    world = ls.Landscape(c.Course(3))
+    world = ls.Landscape(c.Course(3, caves=False))
     seen = [dominant(world, on_the_trail(world, d), d) for d in range(0, 4000, 25)]
     assert seen[0] is Biome.FOREST
     assert set(seen) == set(Biome)
 
 
 def test_a_country_goes_on_for_hundreds_of_metres():
-    world = ls.Landscape(c.Course(3))
+    world = ls.Landscape(c.Course(3, caves=False))
     runs, run, last = [], 0, None
     for d in range(0, 12000, 10):
         now = dominant(world, on_the_trail(world, float(d)), float(d))
@@ -42,7 +42,7 @@ def test_a_country_goes_on_for_hundreds_of_metres():
 
 def test_the_countries_come_in_a_new_order_each_time_round():
     def names(seed):
-        return [z.biome for z in ls.Landscape(c.Course(seed)).zones[:14]]
+        return [z.biome for z in ls.Landscape(c.Course(seed, caves=False)).zones[:14]]
 
     assert names(3) == names(3)
     assert names(3) != names(4)
@@ -183,7 +183,7 @@ def test_the_land_has_no_step_where_a_forks_paths_begin_or_end(land, monkeypatch
 
 def test_the_weights_still_sum_to_one_past_the_last_zone(monkeypatch):
     monkeypatch.setattr(ls, 'ZONE_LIMIT', 12)
-    world = ls.Landscape(c.Course(1))
+    world = ls.Landscape(c.Course(1, caves=False))
     last = world.zones[-1]
     d = np.linspace(last.start - 200.0, last.start + 3000.0, 400)
     w = world.weights(np.zeros_like(d), d)
@@ -192,7 +192,7 @@ def test_the_weights_still_sum_to_one_past_the_last_zone(monkeypatch):
 
 
 def test_a_run_of_a_day_has_countries_and_forks_all_the_way():
-    world = ls.Landscape(c.Course(1))
+    world = ls.Landscape(c.Course(1, caves=False))
     far = 24.0 * 3600.0 * 24.0                    # a day at the top speed
     assert world.zones[-1].start > far
     assert world.course.forks_between(far, far + 3000.0)

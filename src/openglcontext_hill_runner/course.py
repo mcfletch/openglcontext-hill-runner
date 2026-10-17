@@ -325,10 +325,21 @@ class ForkState(NamedTuple):
     separation: np.ndarray
 
 
+class CaveState(NamedTuple):
+    """Where each of a set of distances stands with respect to the caves, as arrays."""
+
+    number: np.ndarray
+    start: np.ndarray
+    end: np.ndarray
+    #: 1 where the cave comes out into rock country, 0 where into forest.
+    into_rock: np.ndarray
+
+
 class Course:
     """An endless hill, made from a seed."""
 
-    def __init__(self, seed: int = 0) -> None:
+    def __init__(self, seed: int = 0, caves: bool = True) -> None:
+        """The hill of ``seed``, with caves in it unless ``caves`` is false."""
         self.seed = int(seed)
         self._chunks: OrderedDict[int, Chunk] = OrderedDict()
         self._lock = threading.Lock()
@@ -338,11 +349,14 @@ class Course:
         self._fork_start = FORK_FIRST + k * FORK_SPACING + rng.uniform(0.0, FORK_JITTER, FORK_LIMIT)
         self._fork_end = self._fork_start + rng.uniform(*FORK_LENGTH, FORK_LIMIT)
         self._fork_side = np.where(rng.random(FORK_LIMIT) < 0.5, -1, 1)
-        caves = stream(self.seed, 'caves')
+        has_caves = bool(caves)
+        cave_rng = stream(self.seed, 'caves')
         k = np.arange(CAVE_LIMIT)
-        self._cave_start = CAVE_FIRST + k * CAVE_SPACING + caves.uniform(0.0, CAVE_JITTER, CAVE_LIMIT)
-        self._cave_end = self._cave_start + caves.uniform(*CAVE_LENGTH, CAVE_LIMIT)
-        self._cave_exit = np.where(caves.random(CAVE_LIMIT) < 0.5, 'rocks', 'forest')
+        self._cave_start = CAVE_FIRST + k * CAVE_SPACING + cave_rng.uniform(0.0, CAVE_JITTER, CAVE_LIMIT)
+        self._cave_end = self._cave_start + cave_rng.uniform(*CAVE_LENGTH, CAVE_LIMIT)
+        self._cave_exit = np.where(cave_rng.random(CAVE_LIMIT) < 0.5, 'rocks', 'forest')
+        if not has_caves:
+            self._cave_start = self._cave_end = np.full(CAVE_LIMIT, -1.0e9)
         self._profiles: dict[int, tuple[np.ndarray, np.ndarray]] = {}
         # A cave takes the place of a fork that would run into it.
         for start, end in zip(self._cave_start, self._cave_end, strict=True):
@@ -371,6 +385,15 @@ class Course:
         last = min(CAVE_LIMIT - 1, int((end - CAVE_FIRST) // CAVE_SPACING) + 1)
         return [self.cave(k) for k in range(first, last + 1)
                 if self._cave_end[k] >= start and self._cave_start[k] <= end]
+
+    def cave_state(self, distance: Any) -> CaveState:
+        """The cave nearest at or ahead of each distance, as arrays: its number, where it
+        starts and ends, and which way it comes out (1 for rock, 0 for forest). The first
+        cave for a distance before it."""
+        d = np.atleast_1d(np.asarray(distance, dtype=np.float64))
+        k = np.clip(np.floor((d - CAVE_FIRST) / CAVE_SPACING).astype(int), 0, CAVE_LIMIT - 1)
+        return CaveState(k, self._cave_start[k], self._cave_end[k],
+                         (self._cave_exit[k] == 'rocks').astype(int))
 
     def in_cave(self, distance: float) -> bool:
         """Whether ``distance`` is under a ceiling."""

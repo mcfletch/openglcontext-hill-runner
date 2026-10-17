@@ -194,3 +194,19 @@ def test_a_hit_runner_stays_where_it_fell_in_the_picture_until_it_is_up():
     while session.game.state is g.State.DOWN:
         session.step(FRAME)
     assert session.step(1 / 30).position != where
+
+
+def test_a_runner_over_a_crevice_stands_on_the_lip_and_does_not_follow_the_floor_down():
+    world = c.Course(1)
+    session = Session(world)
+    crevice = next(o for cave in world.caves_between(0.0, 30000.0)
+                   for o in world.obstacles_between(cave.start, cave.end)
+                   if o.kind is c.Kind.CREVICE)
+    session.game.runner.distance = crevice.distance
+    session.game.runner._rise = 1.0
+    session.game.runner.height = 1.0
+    frame = session.step(FRAME)
+    runner = session.game.runner
+    assert frame.position[1] == pytest.approx(
+        float(session.land.footing(runner.x, runner.distance)) + runner.height)
+    assert frame.position[1] > float(session.land.height(runner.x, runner.distance)) + runner.height + 2.0

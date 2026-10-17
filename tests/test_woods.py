@@ -12,7 +12,7 @@ from openglcontext_hill_runner import woods as w
 
 @pytest.fixture(scope='module')
 def land():
-    return ls.Landscape(c.Course(3))
+    return ls.Landscape(c.Course(3, caves=False))
 
 
 def in_country(land, biome):
@@ -51,7 +51,7 @@ def test_the_trails_run_through_a_clearing_no_crown_overhangs(land):
 
 
 def test_trees_stand_clear_of_the_paths_of_a_fork_as_well(land):
-    fork = next(f for f in land.course.forks_between(0.0, 20000.0) if f.side == 1)
+    fork = next(f for f in land.course.forks_between(0.0, 9000.0) if f.side == 1)
     index = c.chunk_index((fork.start + fork.end) / 2)
     trees = w.chunk_trees(land, index)
     x, d = trees.positions[:, 0].astype(float), -trees.positions[:, 2].astype(float)
@@ -130,7 +130,7 @@ def test_the_woods_plant_a_field_of_the_window_ahead(land):
     assert isinstance(woods.field, VegetationField)
     first, count = woods.window
     assert first * c.CHUNK_LENGTH <= 500.0 - w.BEHIND
-    assert woods.field.tree_count > 300
+    assert woods.field.tree_count > 500
 
 
 @needs_art

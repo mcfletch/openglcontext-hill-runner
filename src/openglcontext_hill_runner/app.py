@@ -12,6 +12,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import numpy as np
+from OpenGLContext import renderoptions
 from OpenGLContext.audio import scene as audioscene
 from OpenGLContext.character import CharacterModel
 from OpenGLContext.context import Context, getCurrentContext
@@ -28,8 +29,8 @@ from OpenGLContext.scenegraph.basenodes import (
 from OpenGLContext.scenegraph.generatedtiles import GeneratedTiles
 from OpenGLContext.ui import dialogs, settings
 
+from openglcontext_hill_runner import atmosphere, credits, menu, woods
 from openglcontext_hill_runner import course as c
-from openglcontext_hill_runner import credits, menu, woods
 from openglcontext_hill_runner.chase import CAMERA_BACK, CAMERA_UP
 from openglcontext_hill_runner.groundcover import Cover
 from openglcontext_hill_runner.hud import RunHud
@@ -57,6 +58,8 @@ CONTROLS = {'<left>': '_hop_left', '<right>': '_hop_right', '<up>': '_jump',
             '<down>': '_slide', '<escape>': '_pause'}
 SKY = [(0.26, 0.48, 0.84), (0.55, 0.74, 0.94), (0.84, 0.90, 0.93)]
 HAZE = (0.80, 0.87, 0.92)
+#: How bright the sun is in the open.
+SUN_INTENSITY = 2.4
 
 
 class RunnerContext(Context):
@@ -144,17 +147,22 @@ class RunnerContext(Context):
         self.session = Session(self.land, demo=self.demo)
         self.terrain = GeneratedTiles(
             HillTiles(self.land, self.look, trees=self.woods is None), reach=REACH, fovy=FOV)
+        self._fog = Fog(color=HAZE, visibilityRange=HAZE_RANGE)
+        self._sun = DirectionalLight(direction=SUN, color=(1.0, 0.96, 0.88),
+                                     intensity=SUN_INTENSITY, shadows=True)
+        self._air: atmosphere.Air | None = None
         self._clip = ''
         self._game_over_shown = False
         self.hud.reset()
         self._last = systemTime()
         self._look_through(self.session.step(0.0))
+        self._breathe()
         self.terrain.prime(self._eye(), self._viewport_height())
         self._fill_the_cover()
         self.sg.children = [
             Background(skyColor=SKY, skyAngle=[1.0, 1.5], groundColor=[HAZE]),
-            Fog(color=HAZE, visibilityRange=HAZE_RANGE),
-            DirectionalLight(direction=SUN, color=(1.0, 0.96, 0.88), intensity=2.4, shadows=True),
+            self._fog,
+            self._sun,
             self.terrain, self.treasure, self.runner_node,
             *([self.woods, *self.cover.nodes] if self.woods and self.cover else []),
         ]
@@ -270,7 +278,22 @@ class RunnerContext(Context):
         self.treasure.update(game, now)
         self.hud.update(game, frame.events, now)
         self._look_through(frame)
+        self._breathe()
         self._stream()
+
+    def _breathe(self) -> None:
+        """Give the sun, the environment light and the fog the air of the place the runner is in:
+        bright and hazy in the open, dark and close in a cave."""
+        air = atmosphere.air_at(self.land.course, self.session.game.runner.distance, HAZE, HAZE_RANGE)
+        if air == self._air:
+            return
+        self._air = air
+        self._sun.intensity = SUN_INTENSITY * air.sun
+        self._fog.color = air.fog_colour
+        self._fog.visibilityRange = air.fog_range
+        definition = renderoptions.definition(self)
+        if definition is not None:
+            definition.iblIntensity = air.ibl
 
     def _stream(self) -> None:
         """Make, load and drop tiles with the GL context current: a dropped tile's buffers are deleted here."""

@@ -12,7 +12,7 @@ from openglcontext_hill_runner import woods as w
 
 @pytest.fixture(scope='module')
 def land():
-    return ls.Landscape(c.Course(3))
+    return ls.Landscape(c.Course(3, caves=False))
 
 
 def species(name, height=0.2):
