@@ -166,3 +166,38 @@ def test_the_camera_is_never_through_the_ceiling_on_the_way_in_and_rises_gently_
     rises = np.diff(ups)
     assert min(ups) < chase.CAMERA_UP and ups[-1] == pytest.approx(chase.CAMERA_UP, abs=0.05)
     assert rises.max() <= chase.RISE_RATE * chase.CAMERA_UP / 60 + 1e-9
+
+
+def test_where_the_camera_is_ducked_it_stands_to_the_right_and_looks_across_to_the_left():
+    world = c.Course(1)
+    low, _high = low_and_high_places(world)
+    body = r.Runner(world)
+    body.distance = low
+    follower = chase.Chase(body)
+    for _ in range(60):
+        target = follower.advance(1 / 60)
+    sideways = follower.camera_offset()[0] + chase.CAMERA_BACK * math.sin(follower.heading())
+    assert sideways >= 0.8 * chase.SIDE_STEP
+    assert target[0] < body.x - 0.8 * chase.LOOK_ASIDE
+    assert follower.sunk() > 0.8
+
+
+def test_in_the_open_the_camera_stands_square_behind_the_runner_and_looks_straight_ahead(body):
+    body.distance = 200.0
+    follower = chase.Chase(body)
+    target = follower.advance(1 / 60)
+    sideways = follower.camera_offset()[0] + chase.CAMERA_BACK * math.sin(follower.heading())
+    assert sideways == pytest.approx(0.0, abs=1e-9)
+    assert target[0] == pytest.approx(body.x + (body.course.lane_x(body.lane, 203.0)
+                                                - body.course.lane_x(body.lane, 200.0)))
+
+
+def test_the_camera_comes_back_in_line_as_it_rises_out_of_the_ceiling():
+    world = c.Course(1)
+    _low, high = low_and_high_places(world)
+    body = r.Runner(world)
+    body.distance = high
+    follower = chase.Chase(body)
+    for _ in range(300):
+        follower.advance(1 / 60)
+    assert follower.camera_offset()[0] + chase.CAMERA_BACK * math.sin(follower.heading()) == pytest.approx(0.0, abs=1e-6)

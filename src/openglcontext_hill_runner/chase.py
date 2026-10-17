@@ -27,6 +27,13 @@ CEILING_CLEARANCE = 0.75
 MIN_UP = 0.0
 RISE_RATE = 3.0
 AHEAD_OF_CAMERA = 2.5
+#: Where the camera has sunk to head height behind the runner, the runner fills the view along the
+#: floor. It then stands SIDE_STEP metres to the right of the runner and looks LOOK_ASIDE metres to
+#: the left of where it would look, across the room and not along the runner's back, by as much as
+#: it has sunk; it has sunk fully when it is SIDE_SINKING metres below where it stands in the open.
+SIDE_STEP = 1.1
+LOOK_ASIDE = 1.2
+SIDE_SINKING = 0.8
 
 
 class Chase:
@@ -56,7 +63,7 @@ class Chase:
         room = self._room(height)
         self._up = room if room < self._up else self._up + (room - self._up) * (
             1.0 - math.exp(-RISE_RATE * dt))
-        return (float(self._x + along), height, -ahead)
+        return (float(self._x + along) - LOOK_ASIDE * self.sunk(), height, -ahead)
 
     def _room(self, looking_at: float) -> float:
         """How far above ``looking_at`` the camera may stand: as high as it likes in the open,
@@ -81,4 +88,10 @@ class Chase:
         """Where the camera stands, from the point it looks at: behind it along the runner's
         path."""
         turn = self.heading()
-        return (-CAMERA_BACK * math.sin(turn), self._up, CAMERA_BACK * math.cos(turn))
+        return (-CAMERA_BACK * math.sin(turn) + SIDE_STEP * self.sunk(), self._up,
+                CAMERA_BACK * math.cos(turn))
+
+    def sunk(self) -> float:
+        """How far the camera has sunk under a ceiling, from 0 in the open to 1 at SIDE_SINKING
+        metres down."""
+        return min(1.0, max(0.0, (CAMERA_UP - self._up) / SIDE_SINKING))
