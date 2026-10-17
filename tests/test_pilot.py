@@ -74,3 +74,43 @@ def test_the_pilot_runs_on_for_thirty_kilometres_without_a_crash(seed, branch):
     game = drive(seed, 30_000, branch)
     assert game.damage == 0, 'crashed into %s at %.1f m' % (
         game.crashed_into, game.runner.distance)
+
+
+def clear_start(world, start):
+    """``start``, or the first place before it with no obstacle within a few metres."""
+    while world.obstacles_between(start - 6.0, start + 30.0):
+        start -= 10.0
+    return start
+
+
+@pytest.mark.parametrize('speed', [10.0, 24.0])
+@pytest.mark.parametrize('seed', range(6))
+def test_the_pilot_runs_through_every_cave_without_a_hit_at_either_speed(seed, speed):
+    world = c.Course(seed)
+    for cave in world.caves_between(0.0, 30000.0)[:8]:
+        game = g.Game(world)
+        pilot = p.Pilot(game)
+        game.runner.distance = clear_start(world, cave.start - 250.0)
+        game.runner.speed = speed
+        while game.runner.distance < cave.end + 30.0 and game.state is g.State.RUNNING:
+            game.runner.speed = max(game.runner.speed, speed)
+            pilot.drive()
+            game.advance(FRAME)
+        assert game.damage == 0, 'hit %s at %.1f m in cave %d of seed %d, going %g m/s' % (
+            game.crashed_into, game.runner.distance, cave.index, seed, speed)
+        assert game.runner.distance >= cave.end + 30.0
+
+
+def test_the_pilot_never_jumps_under_a_low_ceiling():
+    world = c.Course(2)
+    game = g.Game(world)
+    pilot = p.Pilot(game)
+    cave = world.caves_between(0.0, 30000.0)[0]
+    game.runner.distance = clear_start(world, cave.start - 100.0)
+    jumped_under = 0
+    while game.runner.distance < cave.end and game.state is g.State.RUNNING:
+        pilot.drive()
+        game.advance(FRAME)
+        if not game.runner.grounded and float(world.ceiling(game.runner.distance)) < c.JUMP_NEEDS:
+            jumped_under += 1
+    assert jumped_under == 0

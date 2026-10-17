@@ -24,6 +24,8 @@ MAX_DAMAGE = 3
 HEAL_DISTANCE = 500.0
 #: Metres after a hit in which nothing hits the runner again, so one row of obstacles is one hit.
 RECOVERY_DISTANCE = 15.0
+#: How far a head may be into a ceiling before it counts, in metres.
+HEAD_FORGIVENESS = 0.05
 #: Seconds the runner is down after a hit before it runs on: the length of its roll to its feet.
 STUMBLE_TIME = 1.3
 #: How far short of the obstacle it hit the runner is left standing, in metres.
@@ -55,7 +57,7 @@ class Game:
         self.points = 0
         #: Hits taken and not yet healed, up to :data:`MAX_DAMAGE`.
         self.damage = 0
-        #: The obstacle of the latest hit.
+        #: The obstacle of the latest hit, or None for a head against a ceiling.
         self.crashed_into: c.Obstacle | None = None
         self._last_hit = 0.0
         self._down_for = 0.0
@@ -113,7 +115,8 @@ class Game:
         """Leave the runner standing just short of the obstacle it hit; the recovery and the
         run that heals are counted from there."""
         hit = self.crashed_into
-        assert hit is not None
+        if hit is None:
+            return
         short = hit.distance - hit.depth / 2.0 - BODY_HALF_DEPTH - KNOCKED_BACK
         self.runner.distance = min(self.runner.distance, short)
         self._last_hit = self.runner.distance
@@ -127,7 +130,8 @@ class Game:
         return True
 
     def _hit(self) -> bool:
-        """Whether the runner is in an obstacle it cannot be in; records it if so."""
+        """Whether the runner is in an obstacle it cannot be in, or its head is in the ceiling; records
+        it if so."""
         if self.recovering:
             return False
         runner = self.runner
@@ -141,10 +145,19 @@ class Game:
                    >= c.OBSTACLE_HALF_WIDTH + BODY_HALF_WIDTH for lane in obstacle.lanes):
                 continue
             bottom, top = obstacle.kind.band
-            if low + FEET_FORGIVENESS < top and high > bottom:
+            if obstacle.kind is c.Kind.CREVICE:
+                # Only a runner clear of the floor crosses a crevice.
+                fell = low < c.CREVICE_CLEAR
+            else:
+                fell = low + FEET_FORGIVENESS < top and high > bottom
+            if fell:
                 self.crashed_into = obstacle
                 self._last_hit = runner.distance
                 return True
+        if high > float(self.course.ceiling(runner.distance)) - HEAD_FORGIVENESS:
+            self.crashed_into = None
+            self._last_hit = runner.distance
+            return True
         return False
 
     def _collect(self) -> list[Event]:

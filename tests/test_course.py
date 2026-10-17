@@ -66,7 +66,8 @@ def test_no_row_is_walled_off_across_every_path():
 def test_an_obstacle_may_stretch_across_two_paths_and_is_seen_across_both():
     found = {(o.kind, o.span) for chunk in chunks(count=120) for o in chunk.obstacles}
     for kind in c.Kind:
-        assert (kind, 1) in found and (kind, 2) in found, kind
+        if kind is not c.Kind.CREVICE:          # which is across the whole floor: see test_caves
+            assert (kind, 1) in found and (kind, 2) in found, kind
     wide = next(o for chunk in chunks(count=120) for o in chunk.obstacles if o.span == 2)
     assert list(wide.lanes) == [wide.lane, wide.lane + 1]
 
@@ -207,7 +208,7 @@ def forks_of(world, count=12):
 
 def test_forks_leave_a_good_way_apart_and_run_a_few_hundred_metres():
     forks = forks_of(c.Course(3))
-    assert len(forks) >= 8
+    assert len(forks) >= 6                      # a cave takes the place of a fork it would run into
     assert forks[0].start >= c.FORK_FIRST
     for fork in forks:
         assert c.FORK_LENGTH[0] <= fork.end - fork.start <= c.FORK_LENGTH[1]

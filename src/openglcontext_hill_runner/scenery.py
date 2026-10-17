@@ -208,6 +208,8 @@ def obstacle(land: Landscape, thing: c.Obstacle, origin: float = 0.0) -> dict[Pa
     posts for a high one, a stack of logs or a pile of rock for a wall. Which of the two each
     kind is comes from where it stands. z is measured from ``origin``.
     """
+    if thing.kind is c.Kind.CREVICE:
+        return {}                         # a crevice is cut into the ground itself, not stood on it
     course = land.course
     d = thing.distance
     xs = [course.lane_x(lane, d) for lane in thing.lanes]

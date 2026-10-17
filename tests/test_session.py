@@ -169,11 +169,11 @@ def test_the_pilot_does_nothing_while_the_runner_is_down():
     world = c.Course(1)
     session = Session(world, demo=True)
     session.game.state = g.State.DOWN
-    session.game._down_for = 5.0                     # noqa: SLF001 holding the runner down for the test
+    session.game._down_for = 5.0
     session.game.runner.stunned = True
     wall = c.Obstacle(c.Kind.WALL, 1, 12.0)
     world.chunk(0)
-    world._chunks[0] = c.Chunk(0, 0.0, (wall,), (), ())  # noqa: SLF001 a course with the one obstacle
+    world._chunks[0] = c.Chunk(0, 0.0, (wall,), (), ())
     for _ in range(30):
         session.step(FRAME)
     assert session.game.runner.grounded and session.game.runner.lane == 1
@@ -185,7 +185,7 @@ def test_a_hit_runner_stays_where_it_fell_in_the_picture_until_it_is_up():
     session = Session(world)
     wall = c.Obstacle(c.Kind.WALL, 1, 12.0)
     world.chunk(0)
-    world._chunks[0] = c.Chunk(0, 0.0, (wall,), (), ())  # noqa: SLF001 a course with the one obstacle
+    world._chunks[0] = c.Chunk(0, 0.0, (wall,), (), ())
     while session.game.state is not g.State.DOWN:
         session.step(FRAME)
     where = session.step(FRAME).position

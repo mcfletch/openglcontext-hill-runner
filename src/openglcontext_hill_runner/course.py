@@ -75,6 +75,26 @@ FORK_LIMIT = 3000
 #: Chunks the course holds at once; the rest are made again when asked for.
 CHUNKS_KEPT = 256
 
+#: A cave first turns up at CAVE_FIRST and then roughly every CAVE_SPACING metres, for a length in
+#: CAVE_LENGTH. No fork runs for CAVE_APPROACH metres before one or CAVE_AFTER after it: the paths
+#: of a fork would run into the walls. Caves are worked out ahead for CAVE_LIMIT of them.
+CAVE_FIRST = 1800.0
+CAVE_SPACING = 2600.0
+CAVE_JITTER = 500.0
+CAVE_LENGTH = (240.0, 320.0)
+CAVE_APPROACH = 170.0
+CAVE_AFTER = 130.0
+CAVE_LIMIT = 400
+#: A cave's ceiling is out of reach at each end for this many metres, and goes from one height
+#: to the next over CEILING_RAMP metres. It stands in stretches that are high, in CEILING_HIGH
+#: metres above the ground, and stretches that are low, in CEILING_LOW, the high ones the longer.
+CAVE_MOUTH = 40.0
+CEILING_RAMP = 16.0
+CEILING_HIGH = (4.4, 7.5)
+CEILING_LOW = (2.35, 3.0)
+HIGH_STRETCH = (28.0, 52.0)
+LOW_STRETCH = (30.0, 55.0)
+
 
 def ground_height(distance: Any) -> Any:
     """Height of the paths, in metres, at ``distance`` down the hill; a number or an array."""
@@ -91,7 +111,8 @@ def smooth(t: Any) -> np.ndarray:
 #: Each kind of randomness draws from a stream of its own, so that two of them never share
 #: numbers however their other keys happen to fall.
 STREAMS = {name: number for number, name in enumerate(
-    ('chunk', 'forks', 'wander', 'zones', 'branch', 'obstacle', 'trees', 'rocks', 'woods', 'divider'), 1)}
+    ('chunk', 'forks', 'wander', 'zones', 'branch', 'obstacle', 'trees', 'rocks', 'woods', 'divider',
+     'caves'), 1)}
 
 
 def stream(seed: int, name: str, *index: int) -> np.random.Generator:
@@ -110,6 +131,16 @@ STAND_HEIGHT = 1.7
 SLIDE_HEIGHT = 0.6
 #: Highest the runner's feet rise in a jump.
 JUMP_PEAK = 1.5
+#: How high a ceiling has to be for a jump under it to be safe: a jump's peak, the runner's
+#: height at it, and a hand's breadth.
+JUMP_NEEDS = JUMP_PEAK + STAND_HEIGHT + 0.2
+#: A jump that is wanted at a place is made over this many metres either side of it, which no
+#: low ceiling may fall in.
+JUMP_MARGIN = 14.0
+#: How high the feet are, at least, over a crevice for the jump to clear it.
+CREVICE_CLEAR = 0.3
+#: Chance that a row of a cave where a jump is safe is a crevice across the floor.
+CREVICE_CHANCE = 0.35
 
 # -- what is on the hill ------------------------------------------------------
 
@@ -140,6 +171,8 @@ class Kind(enum.Enum):
     HIGH = 'high'
     #: A boulder wall: hop to another path.
     WALL = 'wall'
+    #: A gap across the floor of a cave: jump it.
+    CREVICE = 'crevice'
 
     @property
     def band(self) -> tuple[float, float]:
@@ -151,10 +184,11 @@ _BANDS = {
     Kind.LOW: (0.0, LOW_TOP),
     Kind.HIGH: (HIGH_BOTTOM, HIGH_TOP),
     Kind.WALL: (0.0, WALL_TOP),
+    Kind.CREVICE: (-3.0, 0.0),
 }
 
 #: How deep along the track an obstacle is, in metres.
-DEPTH = {Kind.LOW: 1.0, Kind.HIGH: 0.3, Kind.WALL: 0.9}
+DEPTH = {Kind.LOW: 1.0, Kind.HIGH: 0.3, Kind.WALL: 0.9, Kind.CREVICE: 1.8}
 #: How wide an obstacle is across its path, from its middle to either edge.
 OBSTACLE_HALF_WIDTH = 0.3
 
@@ -226,6 +260,17 @@ class Fork:
 
 
 @dataclass(frozen=True)
+class Cave:
+    """A stretch of the hill that runs under a ceiling."""
+
+    index: int
+    start: float
+    end: float
+    #: Where it comes out: ``'rocks'`` into more rock country, or ``'forest'``.
+    exit: str
+
+
+@dataclass(frozen=True)
 class Chunk:
     """One chunk of the hill: what stands and what hangs in it."""
 
@@ -293,6 +338,100 @@ class Course:
         self._fork_start = FORK_FIRST + k * FORK_SPACING + rng.uniform(0.0, FORK_JITTER, FORK_LIMIT)
         self._fork_end = self._fork_start + rng.uniform(*FORK_LENGTH, FORK_LIMIT)
         self._fork_side = np.where(rng.random(FORK_LIMIT) < 0.5, -1, 1)
+        caves = stream(self.seed, 'caves')
+        k = np.arange(CAVE_LIMIT)
+        self._cave_start = CAVE_FIRST + k * CAVE_SPACING + caves.uniform(0.0, CAVE_JITTER, CAVE_LIMIT)
+        self._cave_end = self._cave_start + caves.uniform(*CAVE_LENGTH, CAVE_LIMIT)
+        self._cave_exit = np.where(caves.random(CAVE_LIMIT) < 0.5, 'rocks', 'forest')
+        self._profiles: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+        # A cave takes the place of a fork that would run into it.
+        for start, end in zip(self._cave_start, self._cave_end, strict=True):
+            runs_in = ((self._fork_end >= start - CAVE_APPROACH)
+                       & (self._fork_start <= end + CAVE_AFTER))
+            self._fork_start[runs_in] = self._fork_end[runs_in] = -1.0e9
+
+    # -- the caves --
+    def cave(self, k: int) -> Cave:
+        """Cave number ``k``."""
+        return Cave(k, float(self._cave_start[k]), float(self._cave_end[k]),
+                    str(self._cave_exit[k]))
+
+    def cave_at(self, distance: float) -> "Cave | None":
+        """The cave that ``distance`` is in, if it is in one."""
+        k = int((distance - CAVE_FIRST) // CAVE_SPACING)
+        if distance < CAVE_FIRST or not 0 <= k < CAVE_LIMIT:
+            return None
+        if self._cave_start[k] <= distance < self._cave_end[k]:
+            return self.cave(k)
+        return None
+
+    def caves_between(self, start: float, end: float) -> list[Cave]:
+        """The caves that any of ``[start, end]`` is in."""
+        first = max(0, int((start - CAVE_FIRST) // CAVE_SPACING) - 1)
+        last = min(CAVE_LIMIT - 1, int((end - CAVE_FIRST) // CAVE_SPACING) + 1)
+        return [self.cave(k) for k in range(first, last + 1)
+                if self._cave_end[k] >= start and self._cave_start[k] <= end]
+
+    def in_cave(self, distance: float) -> bool:
+        """Whether ``distance`` is under a ceiling."""
+        return self.cave_at(distance) is not None
+
+    def _profile(self, k: int) -> "tuple[np.ndarray, np.ndarray]":
+        """Where each stretch of cave ``k``'s ceiling begins and how high it stands."""
+        held = self._profiles.get(k)
+        if held is not None:
+            return held
+        rng = stream(self.seed, 'caves', k)
+        start, end = float(self._cave_start[k]), float(self._cave_end[k])
+        last = end - (CAVE_MOUTH + CEILING_RAMP)
+        begins, heights = [start], [float(rng.uniform(*CEILING_HIGH))]
+        at, high = start + CAVE_MOUTH + float(rng.uniform(0.0, 20.0)), False
+        while at < last:
+            begins.append(at)
+            heights.append(float(rng.uniform(*(CEILING_HIGH if high else CEILING_LOW))))
+            at += float(rng.uniform(*(HIGH_STRETCH if high else LOW_STRETCH)))
+            high = not high
+        if last - begins[-1] < 1.2 * CEILING_RAMP and len(begins) > 1:
+            # Too close for the ceiling to have reached the stretch before it.
+            begins.pop()
+            heights.pop()
+        begins.append(last)
+        heights.append(float(rng.uniform(*CEILING_HIGH)))
+        made = (np.array(begins), np.array(heights))
+        self._profiles[k] = made
+        return made
+
+    def ceiling(self, distance: Any) -> Any:
+        """How high the ceiling is over the paths at ``distance``, in metres, or ``inf`` where
+        there is none; a number or an array."""
+        d = np.asarray(distance, dtype=np.float64)
+        out = np.full(d.shape, np.inf)
+        flat, flat_out = np.atleast_1d(d), np.atleast_1d(out)
+        k = np.clip(np.floor((flat - CAVE_FIRST) / CAVE_SPACING).astype(int), 0, CAVE_LIMIT - 1)
+        inside = (flat >= self._cave_start[k]) & (flat < self._cave_end[k])
+        for cave in np.unique(k[inside]):
+            here = inside & (k == cave)
+            begins, heights = self._profile(int(cave))
+            stretch = np.clip(np.searchsorted(begins, flat[here], side='right') - 1, 0, len(begins) - 1)
+            before = heights[np.maximum(stretch - 1, 0)]
+            blend = smooth((flat[here] - begins[stretch]) / CEILING_RAMP)
+            flat_out[here] = np.where(stretch == 0, heights[0],
+                                      before + (heights[stretch] - before) * blend)
+        flat_out = flat_out.reshape(d.shape)
+        return float(flat_out) if flat_out.ndim == 0 else flat_out
+
+    def low_ceiling(self, distance: Any) -> Any:
+        """Whether a jump at ``distance`` would hit the ceiling."""
+        return np.asarray(self.ceiling(distance)) < JUMP_NEEDS
+
+    def jump_clear(self, distance: float) -> bool:
+        """Whether a jump may be asked of the runner at ``distance``: no low ceiling lies within
+        :data:`JUMP_MARGIN` metres of it, either way, for the jump to fall in."""
+        if self.cave_at(distance - JUMP_MARGIN) is None and self.cave_at(distance + JUMP_MARGIN) is None \
+                and self.cave_at(distance) is None:
+            return True
+        around = self.ceiling(np.linspace(distance - JUMP_MARGIN, distance + JUMP_MARGIN, 29))
+        return bool((np.asarray(around) >= JUMP_NEEDS).all())
 
     # -- where the paths are --
     def centre(self, distance: "float | np.ndarray") -> Any:
@@ -478,6 +617,11 @@ class Course:
             distance = start + offset + float(rng.integers(0, 3))
             if distance < SAFE_START or self._quiet(distance):
                 continue
+            under = self.cave_at(distance) is not None
+            clear = not under or self.jump_clear(distance)
+            if under and clear and rng.random() < CREVICE_CHANCE:
+                obstacles.append(Obstacle(Kind.CREVICE, 0, distance, LANE_COUNT))
+                continue
             inside_hedge = hedged and DIVIDER_FROM <= offset <= DIVIDER_TO
             available = self._row_lanes(distance)
             weights = np.array([0.30 - 0.18 * level, 0.45, 0.20 + 0.10 * level,
@@ -490,7 +634,11 @@ class Course:
             for lane in picked:
                 if lane in covered:
                     continue
+                # Under a low ceiling the log that would want a jump is a bough to slide under.
+                easy = Kind.LOW if clear else Kind.HIGH
                 kind = self._kind(rng)
+                if kind is Kind.LOW:
+                    kind = easy
                 joined = (lane + 1 in available and lane + 1 not in picked
                           and self.lane_x(lane + 1, distance) - self.lane_x(lane, distance)
                           <= HOP_REACH)
@@ -499,7 +647,7 @@ class Course:
                 shut = any(set(group) <= (walled | lanes) for group in groups
                            if set(group) & lanes)
                 if kind is Kind.WALL and (inside_hedge or shut):
-                    kind = Kind.LOW
+                    kind = easy
                 if kind is Kind.WALL:
                     walled |= lanes
                 covered |= lanes
@@ -523,6 +671,9 @@ class Course:
                        <= o.distance + o.depth / 2 + COIN_CLEAR_AFTER for o in obstacles)
 
         def place(lane: int, distance: float, height: float, value: int) -> None:
+            if height > float(self.ceiling(distance)) - 0.3 or (
+                    value > 1 and not self.jump_clear(distance)):
+                return
             if (start <= distance < start + CHUNK_LENGTH and lane in self._row_lanes(distance)
                     and not hidden(lane, distance) and not self._quiet(distance)):
                 coins.append(Coin((index, len(coins)), lane, distance, height, value))

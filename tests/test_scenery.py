@@ -114,7 +114,7 @@ def test_a_path_that_does_not_run_through_a_chunk_has_no_strip(land):
 
 
 def test_the_paths_of_a_fork_run_the_length_of_it_and_thin_to_nothing_at_the_ends(land):
-    fork = next(f for f in land.course.forks_between(0.0, 9000.0) if f.side == 1)
+    fork = next(f for f in land.course.forks_between(0.0, 20000.0) if f.side == 1)
     lane = fork.lanes[0]
     first, last = c.chunk_index(fork.start), c.chunk_index(fork.end)
     strips = [s.path(land, lane, i) for i in range(first, last + 1)]
@@ -130,7 +130,7 @@ def test_the_paths_of_a_fork_run_the_length_of_it_and_thin_to_nothing_at_the_end
 
 
 def test_the_paths_of_a_fork_are_drawn_away_from_the_trail(land):
-    fork = next(f for f in land.course.forks_between(0.0, 9000.0) if f.side == 1)
+    fork = next(f for f in land.course.forks_between(0.0, 20000.0) if f.side == 1)
     middle = (fork.start + fork.end) / 2
     strip = s.path(land, fork.lanes[0], c.chunk_index(middle))
     z = -strip.positions[:, 2]
@@ -158,7 +158,7 @@ def rise(land, obstacle, points):
     return points[:, 1] - float(land.height(x, obstacle.distance))
 
 
-@pytest.mark.parametrize('kind', list(c.Kind))
+@pytest.mark.parametrize('kind', [k for k in c.Kind if k is not c.Kind.CREVICE])
 def test_an_obstacle_stands_in_its_lane_and_at_its_distance(land, kind):
     obstacle = c.Obstacle(kind, 2, 100.0)
     points = points_of(land, obstacle)
@@ -195,7 +195,7 @@ def test_the_way_under_a_high_gate_is_as_high_as_the_rules_say(land):
     assert rise(land, obstacle, points[posts]).min() < 0.05
 
 
-@pytest.mark.parametrize('kind', list(c.Kind))
+@pytest.mark.parametrize('kind', [k for k in c.Kind if k is not c.Kind.CREVICE])
 def test_an_obstacle_across_two_paths_fills_both(land, kind):
     obstacle = c.Obstacle(kind, 0, 100.0, span=2)
     low, high = extent(points_of(land, obstacle), 0)
@@ -376,7 +376,7 @@ def test_the_ground_and_the_path_texture_by_distance_from_the_origin(land):
 
 # -- clear of the lanes beside ------------------------------------------------------
 
-@pytest.mark.parametrize('kind', list(c.Kind))
+@pytest.mark.parametrize('kind', [k for k in c.Kind if k is not c.Kind.CREVICE])
 @pytest.mark.parametrize('lane', [0, 1, 2])
 def test_no_part_of_an_obstacle_reaches_the_body_of_a_runner_in_a_lane_it_does_not_block(
         land, kind, lane):
@@ -395,3 +395,8 @@ def test_no_part_of_an_obstacle_reaches_the_body_of_a_runner_in_a_lane_it_does_n
                     centre = land.course.lane_x(other, d)
                     near = np.abs(p[:, 0] - centre).min()
                     assert near > BODY_HALF_WIDTH + 0.02, (kind, lane, span, d, other, near)
+
+
+def test_a_crevice_is_cut_into_the_ground_and_stands_nothing_on_it():
+    crevice = c.Obstacle(c.Kind.CREVICE, 0, 2000.0, c.LANE_COUNT)
+    assert s.obstacle(ls.Landscape(c.Course(3)), crevice) == {}

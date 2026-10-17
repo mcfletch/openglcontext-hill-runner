@@ -127,8 +127,9 @@ def test_a_runner_who_is_down_rolls_to_its_feet_over_as_long_as_it_is_down(game)
     game.state = g.State.DOWN
     pose = cues.pose_for(game)
     assert (pose.clip, pose.loop) == ('Roll', False)
-    from OpenGLContext.character import CharacterModel
     import importlib.resources as resources
+
+    from OpenGLContext.character import CharacterModel
     path = resources.files('openglcontext_hill_runner') / 'assets' / 'runner.glb'
     length = CharacterModel.load(str(path)).clips['Roll'].duration
     assert length / pose.speed == pytest.approx(g.STUMBLE_TIME, abs=0.05)

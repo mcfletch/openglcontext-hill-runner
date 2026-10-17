@@ -95,7 +95,7 @@ def test_the_gap_to_the_nearest_path_is_measured_from_the_paths_that_exist(land)
     x = np.array([land.course.lane_x(1, 200.0), land.course.lane_x(1, 200.0) + 1.0,
                   land.course.lane_x(2, 200.0) + 5.0])
     assert land.trail_gap(x, d) == pytest.approx([0.0, 0.3, 5.0])
-    fork = next(f for f in land.course.forks_between(0.0, 9000.0) if f.side == 1)
+    fork = next(f for f in land.course.forks_between(0.0, 20000.0) if f.side == 1)
     middle = (fork.start + fork.end) / 2
     branch_x = land.course.lane_x(3, middle)
     assert land.trail_gap(np.array([branch_x]), np.array([middle]))[0] == pytest.approx(0.0)
@@ -104,7 +104,7 @@ def test_the_gap_to_the_nearest_path_is_measured_from_the_paths_that_exist(land)
 
 
 def test_a_hill_stands_between_the_trail_and_a_fork_drawn_away(land):
-    fork = next(f for f in land.course.forks_between(0.0, 9000.0) if f.side == 1)
+    fork = next(f for f in land.course.forks_between(0.0, 20000.0) if f.side == 1)
     middle = (fork.start + fork.end) / 2
     a, b = land.course.lane_x(2, middle), land.course.lane_x(3, middle)
     x = np.linspace(a, b, 40)
@@ -155,7 +155,7 @@ def test_sand_is_tinted_warmer_than_forest(land):
 
 
 def test_a_fork_runs_through_another_country_than_the_trail(land):
-    for fork in land.course.forks_between(0.0, 9000.0)[:6]:
+    for fork in land.course.forks_between(0.0, 20000.0)[:6]:
         middle = (fork.start + fork.end) / 2
         trunk = dominant(land, land.course.lane_x(1, middle), middle)
         branch = dominant(land, land.course.lane_x(fork.lanes[0], middle), middle)
@@ -163,7 +163,7 @@ def test_a_fork_runs_through_another_country_than_the_trail(land):
 
 
 def test_the_far_side_of_a_fork_is_the_countrys_own_not_the_branchs(land):
-    fork = next(f for f in land.course.forks_between(0.0, 9000.0) if f.side == 1)
+    fork = next(f for f in land.course.forks_between(0.0, 20000.0) if f.side == 1)
     before = fork.start - 150.0
     assert dominant(land, land.course.lane_x(3, before), before) is dominant(
         land, land.course.lane_x(1, before), before)
@@ -173,7 +173,7 @@ def test_the_land_has_no_step_where_a_forks_paths_begin_or_end(land, monkeypatch
     # The faces scraped into bare rock have steps of their own; it is the land under them
     # that must not step where a fork begins.
     monkeypatch.setattr(ls.Landscape, '_bare_rock', lambda self, x, d, gap, w: np.zeros_like(x))
-    for fork in land.course.forks_between(0.0, 9000.0):
+    for fork in land.course.forks_between(0.0, 20000.0):
         for edge in (fork.start, fork.end):
             d = np.arange(edge - 4.0, edge + 4.0, 0.05)
             for lateral in (3.0, 10.0, 18.0, 30.0):

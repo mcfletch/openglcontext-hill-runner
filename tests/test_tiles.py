@@ -139,7 +139,7 @@ def test_a_tile_without_trees_of_its_own_holds_fewer_vertices(land, look):
 
 
 def test_a_chunk_where_the_paths_part_has_a_strip_for_each(generator, land):
-    fork = next(f for f in land.course.forks_between(0.0, 9000.0) if f.side == 1)
+    fork = next(f for f in land.course.forks_between(0.0, 20000.0) if f.side == 1)
     index = c.chunk_index((fork.start + fork.end) / 2)
     scene, _ = generator.generate(index)
     widest = max(float(np.ptp(n.geometry.positions[:, 0])) for n in shapes_of(scene)

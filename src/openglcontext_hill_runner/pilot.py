@@ -12,7 +12,9 @@ from openglcontext_hill_runner.runner import HOP_TIME
 LOOK = 40.0
 #: Seconds before the obstacle's near edge that each command is given: a jump
 #: peaks 0.3 s in, so it is over the obstacle; a slide of 0.8 s covers its depth.
-JUMP_LEAD = 0.30
+JUMP_LEAD = 0.27
+#: A crevice is crossed from nearer to it: the jump is then over its far side when it comes down.
+CREVICE_LEAD = 0.20
 SLIDE_LEAD = 0.20
 HOP_LEAD = 0.80
 #: Metres of clearance a hop keeps from an obstacle in a path it crosses, and seconds of room
@@ -49,8 +51,11 @@ class Pilot:
         if nearest.kind is c.Kind.WALL:
             if gap <= runner.speed * HOP_LEAD:
                 self._hop_clear_of(nearest, ahead)
-        elif nearest.kind is c.Kind.LOW:
-            if gap <= runner.speed * JUMP_LEAD and runner.grounded:
+        elif nearest.kind in (c.Kind.LOW, c.Kind.CREVICE):
+            lead = CREVICE_LEAD if nearest.kind is c.Kind.CREVICE else JUMP_LEAD
+            # The course puts a jump only where no low ceiling is near; the pilot checks anyway.
+            if (gap <= runner.speed * lead and runner.grounded
+                    and self.game.course.jump_clear(nearest.distance)):
                 runner.jump()
         elif gap <= runner.speed * SLIDE_LEAD:
             runner.slide()
