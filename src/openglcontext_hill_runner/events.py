@@ -19,5 +19,5 @@ class Event(enum.Enum):
     RISE = 'rise'
     #: The continue is paid for: the coins have counted down and the red clears.
     PAID = 'paid'
-    #: The coins ran out before the continue was paid for: the run is over.
+    #: A hit with fewer coins than a continue costs: the run is over, and the coins are kept.
     CRASH = 'crash'

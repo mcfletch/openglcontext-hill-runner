@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from OpenGLContext.ui.hudwidgets import DamageIndicator, HUDGroup, HUDLayer, Readout
 
 from openglcontext_hill_runner.events import Event
-from openglcontext_hill_runner.game import Game
+from openglcontext_hill_runner.game import Game, State
 
 #: How solid the shading at the screen's edges is while a continue is being paid for, 0 to 1.
 SHADING = 0.75
@@ -38,15 +38,16 @@ class RunHud:
 
     def update(self, game: Game, events: Iterable[Event] = (), now: float | None = None) -> None:
         """Set the readouts and the shading from the game; flash if ``events`` has a hit in it.
-        The coins flash red while they count down and the shading is whole until they have;
+        The coins flash red while they count down and the shading is whole until they have, and
+        stays whole when the run is over;
         ``now`` is the time in seconds the flashing is counted from."""
         self.coins.value = str(game.coins)
         self.score.value = str(game.points)
         self.hits.value = str(game.hits)
         self.meters.value = '%d m' % game.meters
-        self.damage.level = 1.0 if game.paying else 0.0
+        self.damage.level = 1.0 if game.paying or game.state is State.CRASHED else 0.0
         self.coins.critical = game.paying and int((now or 0.0) * 2.0 * COUNTDOWN_FLASHES) % 2 == 0
-        if Event.HIT in events:
+        if Event.HIT in events or Event.CRASH in events:
             self.damage.hurt_all(now=now)
 
     def reset(self) -> None:

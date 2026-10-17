@@ -31,7 +31,7 @@ coins, score, hits and metres run.
 
 A hit knocks the runner down just short of the obstacle. It stays there for 1.3 s, rolling to its feet, with the keys doing nothing, and then runs on from 10 m/s: the speed gained is lost. Each hit costs a continue of 100 coins. The edges of the
 screen turn red and flash at the hit, and the coins flash red as they count down by 100 over the 1.3 s of the roll. When the 100 are paid the red clears and the runner
-runs on. A runner with fewer than 100 coins counts down to nothing with the continue still owing, and the run is over: it cannot be bought. The score is not spent.
+runs on. A runner with fewer than 100 coins cannot buy a continue: the run is over at the hit, with the edges red, and the coins it has are kept and shown on the end screen. The score is not spent.
 Nothing hits the runner again for the next 15 m, so a row of obstacles is one hit.
 
 ### The country

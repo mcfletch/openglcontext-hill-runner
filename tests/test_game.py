@@ -187,7 +187,7 @@ def test_a_long_step_is_taken_in_small_ones_so_nothing_is_stepped_over():
     game = g.Game(Empty([c.Obstacle(c.Kind.WALL, 1, 30.0)]))
     game.runner.distance = 25.0
     heard = game.advance(1.0)
-    assert Event.HIT in heard
+    assert game.hits == 1 and Event.CRASH in heard
 
 
 def test_a_new_run_starts_clean():
@@ -330,14 +330,13 @@ def test_the_coins_count_down_while_the_runner_is_down_and_not_all_at_once():
     assert len(seen) * FRAME == pytest.approx(g.STUMBLE_TIME, abs=2 * FRAME)
 
 
-def test_a_runner_with_fewer_coins_than_a_continue_costs_loses_the_run():
+def test_a_runner_with_fewer_coins_than_a_continue_costs_loses_the_run_and_keeps_its_coins():
     game = funded(Empty(walls(30.0)), coins=60)
-    play(game, lambda game: game.hits == 1)
     heard = play(game, lambda game: game.state is g.State.CRASHED)
-    assert (game.coins, game.paying) == (0, True)
-    assert Event.CRASH in heard and Event.PAID not in heard
+    assert (game.coins, game.paying, game.hits) == (60, False, 1)
+    assert Event.CRASH in heard and Event.HIT not in heard and Event.PAID not in heard
     game.advance(g.STUMBLE_TIME * 2)
-    assert game.state is g.State.CRASHED
+    assert (game.state, game.coins) == (g.State.CRASHED, 60)
 
 
 def test_a_runner_with_exactly_a_continues_coins_gets_up_with_none():
@@ -350,7 +349,7 @@ def test_a_runner_with_exactly_a_continues_coins_gets_up_with_none():
 def test_a_runner_with_no_coins_cannot_continue():
     game = g.Game(Empty(walls(30.0)))
     heard = run_to(game, 100.0)
-    assert game.state is g.State.CRASHED and Event.HIT in heard and Event.CRASH in heard
+    assert game.state is g.State.CRASHED and Event.CRASH in heard and game.coins == 0
 
 
 def test_every_hit_is_paid_for_again():

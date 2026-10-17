@@ -54,7 +54,7 @@ def test_the_run_is_over_a_moment_after_the_crash():
         if session.game.state is g.State.CRASHED:
             break
     assert session.game.hits == 1 and session.game.coins == 0
-    assert heard.count('crash') == 2
+    assert heard.count('crash') == 1
     assert not session.over
     for _ in range(round(GAME_OVER_DELAY / FRAME) + 2):
         session.step(FRAME)

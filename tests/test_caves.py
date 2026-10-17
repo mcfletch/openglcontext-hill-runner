@@ -207,6 +207,7 @@ def play(game, until, command=None):
 
 def test_a_jump_under_a_low_ceiling_is_a_hit():
     game = g.Game(Under(2.6))
+    game.coins = g.CONTINUE_COST
     game.runner.distance = 150.0
     heard = play(game, lambda game: game.hits == 1, lambda game, frame: game.runner.jump())
     assert Event.HIT in heard
@@ -244,6 +245,7 @@ def test_a_jump_just_before_a_low_ceiling_is_over_before_it_gets_there():
 def test_a_crevice_is_crossed_by_a_runner_who_jumps_and_is_a_hit_for_one_who_does_not():
     crevice = c.Obstacle(c.Kind.CREVICE, 0, 200.0, c.LANE_COUNT)
     walker = g.Game(Under(6.0, [crevice]))
+    walker.coins = g.CONTINUE_COST
     walker.runner.distance = 150.0
     heard = play(walker, lambda game: game.hits == 1)
     assert Event.HIT in heard and walker.crashed_into == crevice

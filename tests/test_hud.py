@@ -47,6 +47,14 @@ def test_the_edges_are_red_while_a_continue_is_paid_for_and_clear_after(game):
     assert hud.damage.level == 0.0
 
 
+def test_the_edges_stay_red_when_the_run_is_over_and_flash_at_the_hit_that_ended_it(game):
+    hud = RunHud()
+    game.state = g.State.CRASHED
+    hud.update(game, [Event.CRASH], now=10.0)
+    assert hud.damage.level == 1.0 and len(hud.damage.marks) == 4
+    assert hud.coins.critical is False
+
+
 def test_the_coins_flash_red_while_they_count_down_and_only_then(game):
     hud = RunHud()
     game.owed = 40

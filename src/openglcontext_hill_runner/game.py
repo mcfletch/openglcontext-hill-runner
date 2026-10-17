@@ -25,8 +25,8 @@ HEAD_FORGIVENESS = 0.05
 #: Seconds the runner is down after a hit before it runs on: the length of its roll to its feet.
 STUMBLE_TIME = 1.3
 #: What a continue costs, in coins, and how fast they are counted out: the whole of it in the time
-#: the runner takes to get to its feet. A runner with fewer coins than that has none left before
-#: it is paid for, and the run is over.
+#: the runner takes to get to its feet. A runner with fewer coins than that cannot buy one, keeps
+#: what it has, and the run is over.
 CONTINUE_COST = 100
 PAY_RATE = CONTINUE_COST / STUMBLE_TIME
 #: How far short of the obstacle it hit the runner is left standing, in metres.
@@ -103,30 +103,29 @@ class Game:
                 self.hits += 1
                 self._knock_back()
                 self.runner.knock_down()
-                self.state = State.DOWN
-                self._down_for = STUMBLE_TIME
-                self.owed = CONTINUE_COST
-                self._due = 0.0
-                heard.append(Event.HIT)
+                if self.coins < CONTINUE_COST:
+                    self.state = State.CRASHED
+                    heard.append(Event.CRASH)
+                else:
+                    self.state = State.DOWN
+                    self._down_for = STUMBLE_TIME
+                    self.owed = CONTINUE_COST
+                    self._due = 0.0
+                    heard.append(Event.HIT)
                 break
         return heard
 
     # -- rules --
     def _get_up(self, dt: float) -> list[Event]:
-        """A step of the time down: count out the coins of the continue, end the run if they run
-        out before it is paid for, and get up when it is paid for and the runner has rolled to its
-        feet."""
+        """A step of the time down: count out the coins of the continue, and get up when it is paid
+        for and the runner has rolled to its feet."""
         heard: list[Event] = []
         if self.owed > 0:
             self._due += PAY_RATE * dt
-            taken = min(int(self._due), self.owed, self.coins)
+            taken = min(int(self._due), self.owed)
             self._due -= taken
             self.coins -= taken
             self.owed -= taken
-            if self.owed > 0 and self.coins == 0:
-                self.state = State.CRASHED
-                heard.append(Event.CRASH)
-                return heard
             if self.owed == 0:
                 heard.append(Event.PAID)
         self._down_for -= dt
