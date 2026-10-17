@@ -77,13 +77,16 @@ def forest_art() -> str | None:
 
 
 def species(art: str) -> list[TreeSpecies]:
-    """One :class:`TreeSpecies` for each kind in :data:`KINDS`, named from the art in ``art``."""
+    """One :class:`TreeSpecies` for each kind in :data:`KINDS`, named from the art in ``art``,
+    each with the card as wide as its tree's mesh, so a tree keeps its width as it hands over
+    from one to the other."""
     def at(name: str) -> str:
         return os.path.join(art, name)
-    return [TreeSpecies(name=name, mesh=at(mesh), solid=list(solid), foliage=list(leaf),
-                        solidTexture=at(trunk), foliageTexture=at(leaves), impostor=at(card),
-                        cardWidth=width)
-            for name, mesh, solid, leaf, trunk, leaves, card, width, _, _ in KINDS]
+    kinds = [TreeSpecies(name=name, mesh=at(mesh), solid=list(solid), foliage=list(leaf),
+                         solidTexture=at(trunk), foliageTexture=at(leaves), impostor=at(card),
+                         cardWidth=width)
+             for name, mesh, solid, leaf, trunk, leaves, card, width, _, _ in KINDS]
+    return [kind.varied(cardWidth=kind.fitted_card_width()) for kind in kinds]
 
 
 class Trees(NamedTuple):
