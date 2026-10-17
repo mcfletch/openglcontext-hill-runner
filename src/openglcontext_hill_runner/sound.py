@@ -8,10 +8,11 @@ important when they run out, and muffles its whole output on request.
 context: an object whose ``play`` returns a handle, or ``None`` where sound is
 switched off or the machine has no device, in which case the game is silent.
 """
-import importlib.resources as resources
+import os
 from collections.abc import Iterable
 from typing import Any
 
+from openglcontext_hill_runner import content
 from openglcontext_hill_runner.cues import MUSIC, Sound
 
 MUSIC_GAIN = 0.35
@@ -30,9 +31,8 @@ class Sounds:
 
     @staticmethod
     def path(name: str) -> str:
-        """The shipped file for a sound's name."""
-        return str(resources.files('openglcontext_hill_runner') / 'assets' / 'audio'
-                   / (name + '.ogg'))
+        """The file of a sound's name, in the game's art pack or the checkout's copy of it."""
+        return os.path.join(content.assets_directory(), 'audio', name + '.ogg')
 
     def play(self, sounds: Iterable[Sound]) -> None:
         """Play each of ``sounds`` once."""

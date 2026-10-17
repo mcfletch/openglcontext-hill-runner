@@ -6,8 +6,8 @@ and the time that passed, and applies what a frame says to the model, the
 mixer, the HUD and the camera.
 """
 import contextlib
-import importlib.resources as resources
 import math
+import os
 from collections.abc import Iterator
 from typing import Any
 
@@ -30,7 +30,7 @@ from OpenGLContext.scenegraph.generatedtiles import GeneratedTiles
 from OpenGLContext.scenegraph.vegetation.field import NEAR_RADIUS
 from OpenGLContext.ui import dialogs, settings
 
-from openglcontext_hill_runner import atmosphere, canopy, credits, menu, woods
+from openglcontext_hill_runner import atmosphere, canopy, content, credits, menu, woods
 from openglcontext_hill_runner import course as c
 from openglcontext_hill_runner.chase import CAMERA_BACK, CAMERA_UP, PULL_BACK_MAX
 from openglcontext_hill_runner.groundcover import Cover
@@ -98,8 +98,7 @@ class RunnerContext(Context):
     def OnInit(self) -> None:
         """Load the character and the materials, build the scene and start the first run."""
         self.look = make_look(photos=self.photos)
-        path = resources.files('openglcontext_hill_runner') / 'assets' / 'runner.glb'
-        self.model = CharacterModel.load(str(path))
+        self.model = CharacterModel.load(os.path.join(content.assets_directory(), 'runner.glb'))
         self.mixer = Sounds(audioscene.engine_for(self) if self.sound else None)
         self.hud = RunHud()
         self.addHUDLayer(self.hud.layer)

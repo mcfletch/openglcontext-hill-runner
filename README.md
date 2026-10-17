@@ -16,6 +16,7 @@ oglc-hill-runner --no-forest --no-photos   # no use of the forest demo's art, no
 | --- | --- |
 | Left, Right | Hop to the next path, unless a hedge stands between the two or the paths have drawn apart |
 | Up | Jump over a log or a boulder, or up to a jewel |
+oglc-hill-runner --yes            # fetch the game's own art without asking, where it is not here
 | Down | Slide under a gate (in the air: drop, then slide). Held on, the runner stays down, and rises only when the key is let go: the body rises over the last 0.3 s of a slide, and a gate met then is a hit |
 | Escape | Menu: resume, restart, demo, settings, credits, quit. Demo hands the run to the computer, which runs without a hit for as long as it is left; the menu's Play takes it back. The main screen the game opens on offers Play and Demo too |
 | Alt+F | Show or hide the developer overlay: frame rate, timings and draw counts |
@@ -126,3 +127,8 @@ The render smoke test skips where there is no display.
 
 Audio and the character are CC0. The music is Medieval: Market Day by RandomMind. The forest demo's tree models are CC-BY 4.0 and credited on launch. `ASSET-LICENSES.md` lists each file. The character's `Slide` clip is made by
 `grass-clumps/slide.py` in the OpenGL-dev workspace.
+
+The runner, the music and the sounds (2.7 MB) are a content pack, `openglcontext-hill-runner/assets`, attached to
+a GitHub release and not carried in the wheel. The first run lists the pack's size and terms and asks before it
+fetches it; a checkout runs from its own copy and asks nothing. `release-assets.py` builds the pack and writes the
+registry the game ships (`packs.json`); `tools/publish-content.py` in the workspace attaches it to its release.

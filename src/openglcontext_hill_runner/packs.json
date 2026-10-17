@@ -1,0 +1,18 @@
+{
+ "namespace": "openglcontext-hill-runner",
+ "packs": [
+  {
+   "key": "openglcontext-hill-runner/assets",
+   "title": "Hill runner art and sound",
+   "url": "https://github.com/mcfletch/openglcontext-hill-runner/releases/download/content-v1/hill-runner-assets.tar.gz",
+   "directory": "assets",
+   "archive": "tar",
+   "approximate_bytes": 2861834,
+   "sha256": "30f199ba9de75c56ab5bda8efd2a74a04f4308342ceff88f741d847b2967161a",
+   "copyright": "The runner and its animations by Quaternius (CC0 1.0); music by RandomMind, sounds by Kenney, AntumDeluge and Cici Fyre (all CC0 1.0), and a chime made for this project. Full terms in CREDITS.txt inside the pack.",
+   "marker": "runner.glb",
+   "base": true,
+   "notes": "The runner and its animations, the music and the sounds. Fetched before the first frame, because the game opens its character before it opens a window."
+  }
+ ]
+}

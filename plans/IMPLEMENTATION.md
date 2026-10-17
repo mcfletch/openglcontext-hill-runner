@@ -6,6 +6,7 @@
   `GroundCover` on any `Ground` with `relocate` and `dispose`, and `surfaces.merge([])` (see openglcontext
   `plans/GENERATED-TILES.md`).
 - The woods' cards take `TreeSpecies.fitted_card_width()`: the forest demo's widths left each card 25-40% narrower than its mesh, which showed as every tree thinning across the 38-52 m hand-over.
+- Art: the runner, music and sounds are the content pack `openglcontext-hill-runner/assets` (`content.py`, `release-assets.py`, shipped `packs.json`), fetched from a GitHub release on the first run with a question first, and read from the checkout's `assets/` where there is one; the wheel carries none. Published by `tools/publish-content.py`.
 - Tiles are made in two worker processes (`tiles.TileMaker`, which returns `TileData` arrays; `HillTiles.assemble` builds the nodes in the game), since threads of the game's process got a few per cent of the interpreter lock from the render thread: a tile took 4-13 s in the game and 0.3 s alone.
 - Tiles are built around the start of their chunk and drawn translated to it, so vertex coordinates stay
   small and precise at any distance; textures are laid from the same origin.

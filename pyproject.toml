@@ -49,7 +49,8 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-openglcontext_hill_runner = ["assets/*", "assets/audio/*"]
+# The art is a content pack fetched on the first run (content.py), not part of the wheel.
+openglcontext_hill_runner = ["packs.json"]
 
 [tool.openglcontext-checks]
 select = ["OGC101", "OGC102", "OGC111", "OGC121", "OGC131", "OGC141", "OGC201", "OGC221", "OGC222", "OGC223"]
