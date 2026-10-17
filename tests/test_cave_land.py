@@ -56,7 +56,7 @@ def test_the_floor_of_a_cave_is_the_trail_and_rock_rises_either_side_above_the_c
         roof = float(land.course.ceiling(d))
         for side in (-1.0, 1.0):
             rock = float(land.height(centre + side * (ls.CAVE_HALF_WIDTH + ls.WALL_RISE + 1.0), d))
-            assert rock - floor >= roof + 5.0, (cave, side)
+            assert rock - floor >= max(roof + 5.0, ls.HILL_HEIGHT - ls.HILL_RELIEF), (cave, side)
 
 
 def test_the_walls_stand_close_beside_the_trail(land):

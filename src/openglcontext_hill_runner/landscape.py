@@ -39,11 +39,13 @@ ROCK_FADE = 1.5
 #: How high the bare rock of rock country stands above the land, in metres.
 ROCK_HEIGHT = 0.7
 #: A cave's corridor is this wide from the trail's middle, its walls rise over WALL_RISE
-#: metres to WALL_OVER above the ceiling, and the hill gathers about it over MOUTH_RISE
+#: metres to HILL_HEIGHT above the trail, give or take HILL_RELIEF, which is higher than any
+#: ceiling by the thickness of the rock over it, and the hill gathers about it over MOUTH_RISE
 #: metres before its mouth and after its end.
 CAVE_HALF_WIDTH = 2.6
 WALL_RISE = 2.5
-WALL_OVER = 9.0
+HILL_HEIGHT = 17.0
+HILL_RELIEF = 2.0
 MOUTH_RISE = 22.0
 #: Rock country is forced this far before a cave and the way out blends to its country over
 #: OUT_BLEND metres past the end; the force fades over the CAVE_FADE before and after.
@@ -352,12 +354,13 @@ class Landscape:
 
     def _cave_walls(self, x: np.ndarray, d: np.ndarray) -> np.ndarray:
         """The hill that stands about a cave: the land beside its trail rises over WALL_RISE
-        metres to WALL_OVER above the ceiling, so the ceiling is inside it."""
-        stands, roof = self._hill(d)
+        metres to the top of the hill, so the ceiling is inside it."""
+        stands, _roof = self._hill(d)
         if not stands.any():
             return np.zeros_like(x)
         across = np.abs(x - np.asarray(self.course.centre(d)))
-        return np.asarray(stands * (roof + WALL_OVER) * c.smooth((across - CAVE_HALF_WIDTH) / WALL_RISE))
+        top = HILL_HEIGHT + 2.0 * HILL_RELIEF * (fbm(x / 14.0 + 5.0, d / 14.0 - 3.0, seed=83, octaves=2) - 0.5)
+        return np.asarray(stands * top * c.smooth((across - CAVE_HALF_WIDTH) / WALL_RISE))
 
     def _crevices(self, x: np.ndarray, d: np.ndarray) -> np.ndarray:
         """How far the floor is cut away at each point by the crevices of a cave."""
