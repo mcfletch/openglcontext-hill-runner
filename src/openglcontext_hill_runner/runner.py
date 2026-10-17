@@ -23,6 +23,9 @@ JUMP_TIME = 2.0 * JUMP_SPEED / GRAVITY
 #: ground to slide there.
 FAST_FALL_SPEED = 22.0
 SLIDE_TIME = 0.8
+#: The last of a slide, in seconds, over which the body rises: the length of the Slide clip's
+#: rise. The rules and the animation have the body low until then and rising through it together.
+SLIDE_RISE = 0.3
 
 
 class Runner:
@@ -41,6 +44,7 @@ class Runner:
         self.height = 0.0
         self._rise = 0.0
         self._slide_left = 0.0
+        self._slide_age = 0.0
         self._slide_on_landing = False
         self._events: list[Event] = []
         #: Whether the body is knocked down: it does as it is told by nothing.
@@ -68,10 +72,30 @@ class Runner:
         return self.course.lane_x(self.lane, self.distance) + self.offset
 
     @property
+    def slide_left(self) -> float:
+        """Seconds until the slide ends; a slide pressed again has this much again."""
+        return self._slide_left
+
+    @property
+    def slide_age(self) -> float:
+        """Seconds since the slide began, which pressing it again does not restart."""
+        return self._slide_age
+
+    @property
+    def body_height(self) -> float:
+        """How tall the body is: standing, low in a slide, and rising through the last
+        :data:`SLIDE_RISE` of it."""
+        if not self.sliding:
+            return c.STAND_HEIGHT
+        if self._slide_left > SLIDE_RISE:
+            return c.SLIDE_HEIGHT
+        risen = float(c.smooth(1.0 - self._slide_left / SLIDE_RISE))
+        return c.SLIDE_HEIGHT + (c.STAND_HEIGHT - c.SLIDE_HEIGHT) * risen
+
+    @property
     def band(self) -> tuple[float, float]:
         """Metres above the ground, bottom and top, that the body fills."""
-        top = c.SLIDE_HEIGHT if self.sliding else c.STAND_HEIGHT
-        return self.height, self.height + top
+        return self.height, self.height + self.body_height
 
     def drain_events(self) -> list[Event]:
         """What the body did since this was last called."""
@@ -102,6 +126,7 @@ class Runner:
         self.height = 0.0
         self._rise = 0.0
         self._slide_left = 0.0
+        self._slide_age = 0.0
         self._slide_on_landing = False
         self.offset = 0.0
         self._events.clear()
@@ -124,6 +149,7 @@ class Runner:
             return False
         self._rise = JUMP_SPEED
         self._slide_left = 0.0
+        self._slide_age = 0.0
         self._slide_on_landing = False
         self._events.append(Event.JUMP)
         return True
@@ -137,9 +163,11 @@ class Runner:
         if self.stunned:
             return False
         if self.sliding:
+            # Pressed on: the body stays low and the slide goes on from where it is.
             self._slide_left = SLIDE_TIME
         elif self.grounded:
             self._slide_left = SLIDE_TIME
+            self._slide_age = 0.0
             self._events.append(Event.SLIDE)
         else:
             self._rise = -FAST_FALL_SPEED
@@ -157,7 +185,11 @@ class Runner:
             self._move_to(min(lanes, key=lambda lane: abs(lane - self.lane)))
         self._glide(dt)
         self._fly(dt)
+        if self._slide_left > 0.0:
+            self._slide_age += dt
         self._slide_left = max(0.0, self._slide_left - dt)
+        if self._slide_left == 0.0:
+            self._slide_age = 0.0
 
     def _glide(self, dt: float) -> None:
         """Carry the body onto the middle of its path, a path's width in HOP_TIME."""
@@ -177,4 +209,5 @@ class Runner:
             if self._slide_on_landing:
                 self._slide_on_landing = False
                 self._slide_left = SLIDE_TIME
+                self._slide_age = 0.0
                 self._events.append(Event.SLIDE)

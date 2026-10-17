@@ -270,8 +270,10 @@ class RunnerContext(Context):
         game = self.session.game
         self.mixer.play(frame.sounds)
         pose = frame.pose
-        self.model.play(pose.clip, loop=pose.loop, fade=pose.fade, speed=pose.speed,
-                        restart=pose.clip != self._clip)
+        track = self.model.play(pose.clip, loop=pose.loop, fade=pose.fade, speed=pose.speed,
+                                restart=pose.clip != self._clip)
+        if pose.at is not None:
+            track.time = pose.at
         self._clip = pose.clip
         self.model.update(frame.dt)
         self._place_runner(frame)

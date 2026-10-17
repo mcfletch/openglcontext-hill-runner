@@ -16,7 +16,7 @@ oglc-hill-runner --no-forest --no-photos   # no use of the forest demo's art, no
 | --- | --- |
 | Left, Right | Hop to the next path, unless a hedge stands between the two or the paths have drawn apart |
 | Up | Jump over a log or a boulder, or up to a jewel |
-| Down | Slide under a gate (in the air: drop, then slide) |
+| Down | Slide under a gate (in the air: drop, then slide). Held on, the runner stays down, and rises only when the key is let go: the body rises over the last 0.3 s of a slide, and a gate met then is a hit |
 | Escape | Menu: resume, restart, demo, settings, credits, quit. Demo hands the run to the computer, which runs without a hit for as long as it is left; the menu's Play takes it back. The main screen the game opens on offers Play and Demo too |
 | Alt+F | Show or hide the developer overlay: frame rate, timings and draw counts |
 | F2 | Save a screenshot to the pictures folder, as `Hill-Runner-0001.png` and so on |

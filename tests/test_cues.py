@@ -138,3 +138,49 @@ def test_a_runner_who_is_down_rolls_to_its_feet_over_as_long_as_it_is_down(game)
 def test_no_steps_are_taken_while_down(game):
     game.state = g.State.DOWN
     assert not cues.Footsteps().advance(1.0, game)
+
+
+# -- the slide's own clock ------------------------------------------------------------------
+
+def slid(game, seconds, again_at=()):
+    """The pose a slide asked for now has, after ``seconds``, pressed again at each of ``again_at``."""
+    game.runner.slide()
+    clock, pressed = 0.0, set()
+    while clock < seconds - 1e-9:
+        game.runner.advance(1 / 120)
+        clock += 1 / 120
+        for moment in again_at:
+            if clock >= moment and moment not in pressed:
+                pressed.add(moment)
+                game.runner.slide()
+    return cues.pose_for(game)
+
+
+def test_an_unbroken_slide_plays_its_clip_as_it_is(game):
+    for seconds in (0.1, 0.3, 0.5, 0.7):
+        game = g.Game(c.Course(1))
+        pose = slid(game, seconds)
+        assert pose.clip == 'Slide' and pose.at == pytest.approx(seconds, abs=0.02), seconds
+
+
+def test_a_slide_held_on_stays_in_the_low_part_of_the_clip(game):
+    from openglcontext_hill_runner.runner import SLIDE_RISE, SLIDE_TIME
+    pose = slid(game, 1.6, again_at=[0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.5])
+    assert pose.at == pytest.approx(SLIDE_TIME - SLIDE_RISE)
+
+
+def test_a_slide_let_go_rises_over_its_end_and_finishes_with_it(game):
+    from openglcontext_hill_runner.runner import SLIDE_RISE, SLIDE_TIME
+    game.runner.slide()
+    for _ in range(round(1.0 * 120)):
+        game.runner.advance(1 / 120)
+        if game.runner.sliding:
+            pose = cues.pose_for(game)
+            remaining = game.runner.slide_left
+            if remaining <= SLIDE_RISE:
+                assert pose.at == pytest.approx(SLIDE_TIME - remaining, abs=0.01)
+    assert not game.runner.sliding
+
+
+def test_the_clip_is_not_scrubbed_when_there_is_no_slide(game):
+    assert cues.pose_for(game).at is None

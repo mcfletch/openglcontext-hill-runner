@@ -221,3 +221,49 @@ def test_a_runner_on_a_path_that_joins_the_trail_is_carried_onto_the_nearest_one
     assert body.lane == 2
     assert np.abs(np.diff(positions)).max() < 0.2
     assert body.x == pytest.approx(world.lane_x(2, body.distance), abs=0.02)
+
+
+# -- rising from a slide ------------------------------------------------------------------
+
+def slide_for(body, seconds, step=1 / 120):
+    for _ in range(round(seconds / step)):
+        body.advance(step)
+
+
+def test_a_slide_is_low_until_the_last_moments_and_the_body_rises_over_them(body):
+    body.slide()
+    slide_for(body, r.SLIDE_TIME - r.SLIDE_RISE - 0.05)
+    assert body.body_height == pytest.approx(c.SLIDE_HEIGHT)
+    heights = []
+    for _ in range(round(r.SLIDE_RISE * 120)):
+        body.advance(1 / 120)
+        heights.append(body.body_height)
+    assert heights == sorted(heights) and heights[0] < heights[-1] <= c.STAND_HEIGHT
+    slide_for(body, 0.1)
+    assert not body.sliding and body.body_height == c.STAND_HEIGHT
+
+
+def test_the_top_of_the_body_is_the_slides_height_and_then_the_standing_height(body):
+    assert body.band == (0.0, c.STAND_HEIGHT)
+    body.slide()
+    assert body.band == (0.0, c.SLIDE_HEIGHT)
+
+
+def test_a_slide_pressed_again_keeps_the_body_low_and_the_slides_age_going(body):
+    body.slide()
+    slide_for(body, 0.45)
+    age = body.slide_age
+    body.slide()
+    assert body.slide_age == pytest.approx(age)
+    assert body.slide_left == pytest.approx(r.SLIDE_TIME)
+    slide_for(body, 0.4)
+    assert body.body_height == pytest.approx(c.SLIDE_HEIGHT)
+    assert body.slide_age > age + 0.35
+
+
+def test_the_slide_starts_again_from_nothing_after_it_has_ended(body):
+    body.slide()
+    slide_for(body, r.SLIDE_TIME + 0.1)
+    assert body.slide_age == 0.0
+    body.slide()
+    assert body.slide_age == 0.0 and body.slide_left == pytest.approx(r.SLIDE_TIME)

@@ -350,3 +350,35 @@ def test_a_runner_with_no_damage_has_nothing_to_heal_and_a_long_run_is_not_credi
     assert (game.damage, Event.HEAL in heard) == (0, False)
     run_to(game, 1600.0)
     assert game.damage == 1
+
+
+# -- the body rising from a slide -----------------------------------------------------------
+
+def slide_at(gap):
+    """A game with a high barrier ``gap`` seconds ahead of a runner who slides now."""
+    game = g.Game(Empty([c.Obstacle(c.Kind.HIGH, 1, 100.0)]))
+    game.runner.distance = 100.0 - game.runner.speed * gap
+    game.runner.slide()
+    return game
+
+
+def test_a_barrier_met_while_the_body_is_low_is_slid_under():
+    from openglcontext_hill_runner.runner import SLIDE_RISE, SLIDE_TIME
+    game = slide_at(SLIDE_TIME - SLIDE_RISE - 0.1)
+    run_to(game, 130.0)
+    assert game.damage == 0
+
+
+def test_a_barrier_met_while_the_body_is_rising_is_a_hit():
+    from openglcontext_hill_runner.runner import SLIDE_TIME
+    game = slide_at(SLIDE_TIME - 0.05)
+    run_to(game, 130.0)
+    assert game.damage == 1 and game.crashed_into.kind is c.Kind.HIGH
+
+
+def test_a_slide_held_on_goes_under_barrier_after_barrier():
+    game = g.Game(Empty([c.Obstacle(c.Kind.HIGH, 1, d) for d in (60.0, 100.0, 140.0)]))
+    game.runner.distance = 30.0
+    play(game, lambda game: game.runner.distance > 170.0,
+         lambda game, frame: game.runner.slide() if frame % 20 == 0 else None)
+    assert game.damage == 0

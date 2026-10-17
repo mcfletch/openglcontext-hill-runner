@@ -5,9 +5,11 @@ The window asks :func:`pose_for` which clip to play each frame, hands
 foot lands. None of it touches GL, so tests run it without a window.
 """
 from dataclasses import dataclass
+from typing import Any
 
 from openglcontext_hill_runner import game as g
 from openglcontext_hill_runner.events import Event
+from openglcontext_hill_runner.runner import SLIDE_RISE, SLIDE_TIME
 
 #: Seconds one cycle of each looping clip lasts at speed 1.0: two footfalls.
 CYCLE = {'Jog_Fwd_Loop': 0.933, 'Sprint_Loop': 0.667}
@@ -36,6 +38,17 @@ class Pose:
     loop: bool
     fade: float
     speed: float = 1.0
+    #: Where in the clip to stand, in seconds, set each frame; None to let the clip play.
+    at: float | None = None
+
+
+def _slide_time(runner: Any) -> float:
+    """Where the Slide clip stands: as it plays, until the runner has gone down; held there while
+    the slide goes on, so a long slide does not rise early; and rising only over the slide's end,
+    which is the body's own rise."""
+    if runner.slide_left > SLIDE_RISE:
+        return float(min(runner.slide_age, SLIDE_TIME - SLIDE_RISE))
+    return float(SLIDE_TIME - runner.slide_left)
 
 
 def pose_for(game: g.Game) -> Pose:
@@ -47,7 +60,7 @@ def pose_for(game: g.Game) -> Pose:
         # Knocked over and rolling up, in the time the runner is down for.
         return Pose('Roll', False, 0.05, ROLL_LENGTH / g.STUMBLE_TIME)
     if runner.sliding:
-        return Pose('Slide', False, 0.08)
+        return Pose('Slide', False, 0.08, at=_slide_time(runner))
     if not runner.grounded:
         if runner.rising:
             return Pose('Jump_Start', False, 0.05, TAKEOFF_SPEED)
