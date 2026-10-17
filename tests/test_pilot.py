@@ -28,7 +28,7 @@ def drive(seed, metres, branch=None):
 @pytest.mark.parametrize('seed', range(20))
 def test_the_pilot_runs_every_course_without_a_crash(seed, branch):
     game = drive(seed, 3500, branch)
-    assert game.state is g.State.RUNNING, (
+    assert game.damage == 0, (
         'crashed into %s at %.1f m in lane %d' % (
             game.crashed_into, game.runner.distance, game.runner.lane))
 
@@ -37,7 +37,7 @@ def test_the_pilot_runs_every_course_without_a_crash(seed, branch):
 def test_the_pilot_runs_the_hardest_stretch_too(seed):
     start = c.HARDEST_AT_CHUNK * c.CHUNK_LENGTH
     game = drive(seed, start + 800.0)
-    assert game.state is g.State.RUNNING, 'crashed into %s at %.1f m' % (
+    assert game.damage == 0, 'crashed into %s at %.1f m' % (
         game.crashed_into, game.runner.distance)
 
 
@@ -72,5 +72,5 @@ def test_the_pilot_hops_for_walls_and_jumps_and_slides():
 def test_the_pilot_runs_on_for_thirty_kilometres_without_a_crash(seed, branch):
     """The menu's Demo hands the run to the pilot to play for as long as it is left."""
     game = drive(seed, 30_000, branch)
-    assert game.state is g.State.RUNNING, 'crashed into %s at %.1f m' % (
+    assert game.damage == 0, 'crashed into %s at %.1f m' % (
         game.crashed_into, game.runner.distance)

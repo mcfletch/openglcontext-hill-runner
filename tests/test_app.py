@@ -358,3 +358,122 @@ def test_the_demo_the_menu_starts_plays_on_and_the_player_can_take_the_run_back(
             if line.split(' ')[0] in ('BEFORE', 'AFTER', 'LATER', 'BACK')]
     assert [line.split(' ')[0] + ' ' + line.split(' ')[1] for line in said] == [
         'BEFORE False', 'AFTER True', 'LATER RUNNING', 'BACK False'], said
+
+
+MAIN_SCREEN = '''
+from OpenGLContext.ui.widgets import Button
+from openglcontext_hill_runner.app import RunnerContext
+
+
+def button(panel, name):
+    if isinstance(panel, Button) and panel.name == name:
+        return panel
+    for child in getattr(panel, 'children', []) or []:
+        found = button(child, name)
+        if found is not None:
+            return found
+
+
+class Opening(RunnerContext):
+    seed = 2
+    demo = False
+    sound = False
+    photos = False
+    forest = False
+    main_menu = True
+    frames = 0
+
+    def OnIdle(self, *arguments):
+        type(self).frames += 1
+        game = self.session.game
+        if self.frames == 40:
+            print('WAITING', self.overlays.visible, self.session.demo, round(game.runner.distance),
+                  flush=True)
+            demo = button(self.overlays.top, 'demo')
+            demo.on_activate(demo)
+        if self.frames == 100:
+            print('PLAYING', self.overlays.visible, self.session.demo,
+                  round(game.runner.distance) > 5, flush=True)
+        return super().OnIdle(*arguments)
+
+
+Opening.ContextMainLoop(size=(640, 360))
+'''
+
+
+@pytest.mark.needs_gl
+@pytest.mark.skipif(not _has_gl(), reason="no GL display available")
+def test_the_game_opens_on_the_main_screen_and_its_demo_button_starts_the_computer(tmp_path):
+    env = dict(os.environ)
+    env.update(OPENGLCONTEXT_PROFILE="core", OPENGLCONTEXT_HIDDEN="1",
+               OPENGLCONTEXT_AUTO_EXIT_FRAMES="120")
+    script = tmp_path / "opening.py"
+    script.write_text(MAIN_SCREEN)
+    result = subprocess.run([sys.executable, str(script)], env=env, capture_output=True,
+                            text=True, timeout=240)
+    assert 'Traceback' not in result.stderr, result.stderr[-2000:]
+    said = [line for line in result.stdout.splitlines()
+            if line.split(' ')[0] in ('WAITING', 'PLAYING')]
+    assert said == ['WAITING True False 0', 'PLAYING False True True'], said
+
+
+def test_the_command_opens_on_the_main_screen_unless_the_computer_is_to_play(monkeypatch):
+    from openglcontext_hill_runner import run
+    played = []
+    monkeypatch.setattr(RunnerContext, 'ContextMainLoop', classmethod(lambda cls, **_: played.append(
+        (cls.main_menu, cls.demo))))
+    monkeypatch.setattr(run.cc0, 'ensure_pack', lambda **_: None)
+    for arguments in ([], ['--demo']):
+        run.main(arguments + ['--no-photos'])
+    assert played == [(True, False), (False, True)]
+
+
+DAMAGED = '''
+from openglcontext_hill_runner.app import RunnerContext
+
+
+class Damaged(RunnerContext):
+    seed = 1
+    demo = True
+    sound = False
+    photos = False
+    forest = False
+    damage = 0
+
+    def OnInit(self):
+        super().OnInit()
+        self.session.game.damage = type(self).damage
+
+
+Damaged.damage = int(__import__('sys').argv[1])
+Damaged.ContextMainLoop(size=(640, 360))
+'''
+
+
+def edge_redness(pixels):
+    """How much redder than green the outer tenth of the picture is."""
+    rim = np.concatenate([pixels[:, :pixels.shape[1] // 10].reshape(-1, 3),
+                          pixels[:, -(pixels.shape[1] // 10):].reshape(-1, 3)])
+    return float((rim[:, 0] - rim[:, 1]).mean())
+
+
+@pytest.mark.needs_gl
+@pytest.mark.skipif(not _has_gl(), reason="no GL display available")
+def test_the_more_damage_the_redder_the_edges_of_the_picture(tmp_path):
+    redness = []
+    for damage in (0, 1, 2):
+        shots = tmp_path / str(damage)
+        shots.mkdir()
+        env = dict(os.environ)
+        env.update(OPENGLCONTEXT_PROFILE="core", OPENGLCONTEXT_HIDDEN="1",
+                   OPENGLCONTEXT_DISABLE_FPS_DISPLAY="1", OPENGLCONTEXT_AUTO_EXIT_FRAMES="60",
+                   OPENGLCONTEXT_AUTO_EXIT_CAPTURE_DIR=str(shots),
+                   OPENGLCONTEXT_AUTO_EXIT_CAPTURE_NAME="shot")
+        script = tmp_path / "damaged.py"
+        script.write_text(DAMAGED)
+        result = subprocess.run([sys.executable, str(script), str(damage)], env=env,
+                                capture_output=True, text=True, timeout=240)
+        assert 'Traceback' not in result.stderr, result.stderr[-2000:]
+        redness.append(edge_redness(np.asarray(Image.open(shots / "shot.png").convert("RGB"),
+                                               dtype=float)))
+    assert redness[0] + 4.0 < redness[1] < redness[2] - 4.0, redness

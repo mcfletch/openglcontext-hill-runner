@@ -26,6 +26,9 @@
 - Window: tiles, runner, coins and jewels, HUD, pause, credits and end-of-run screens, music and effects,
   shadows. Where the runner stands, how it is turned and where the camera is come from `Session`.
 - Credits printed at start and shown from the menu.
+- Damage: three hits end a run, a hit resets the speed, 500 m without one heals one; edge shading from the
+  engine's `DamageIndicator` (`level`, `hurt_all`). Main screen with Play and Demo.
+- Music: Medieval: Market Day (CC0), a faster folk loop than Virtual Rush.
 
 ## Open
 

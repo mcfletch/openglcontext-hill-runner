@@ -91,6 +91,10 @@ class Runner:
         self._events.append(Event.HOP)
         return True
 
+    def stumble(self) -> None:
+        """Lose all the speed gained: the run starts over at :data:`START_SPEED`."""
+        self.speed = START_SPEED
+
     def _move_to(self, lane: int) -> None:
         """Change path without moving the body; the offset is what is left to glide."""
         here = self.x

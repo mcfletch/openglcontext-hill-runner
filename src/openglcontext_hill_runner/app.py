@@ -73,6 +73,8 @@ class RunnerContext(Context):
     sound = True
     photos = True
     forest = True
+    #: Whether the game opens on the main screen rather than running at once.
+    main_menu = False
 
     #: The game opens on its own screen; Alt+F brings up the engine's developer overlay.
     debugOverlayStartsVisible = False
@@ -99,6 +101,8 @@ class RunnerContext(Context):
         for key, method in CONTROLS.items():
             self.addEventHandler('keyboard', name=key, state=1, function=getattr(self, method))
         self.mixer.start_music()
+        if self.main_menu:
+            self._show_main_menu()
         print('\n'.join(credits.startup(self.woods is not None, self.photos)))
 
     def _plant_the_forest(self, land: Landscape) -> None:
@@ -137,6 +141,7 @@ class RunnerContext(Context):
             HillTiles(self.land, self.look, trees=self.woods is None), reach=REACH, fovy=FOV)
         self._clip = ''
         self._game_over_shown = False
+        self.hud.reset()
         self._last = systemTime()
         self._look_through(self.session.step(0.0))
         self.terrain.prime(self._eye(), self._viewport_height())
@@ -198,6 +203,11 @@ class RunnerContext(Context):
                 on_settings=self._settings, on_credits=self._credits, on_quit=self.OnQuit,
                 on_demo=self._demo, demo=self.session.demo))
 
+    def _show_main_menu(self) -> None:
+        self.pushOverlay(menu.main_panel(
+            on_play=self._resume, on_demo=self._start_demo, on_settings=self._settings,
+            on_credits=self._credits, on_quit=self.OnQuit))
+
     def _credits(self) -> None:
         self.pushOverlay(dialogs.notice(
             'Credits', credits.text(self.woods is not None, self.photos), columns=64))
@@ -210,11 +220,19 @@ class RunnerContext(Context):
 
     def _demo(self) -> None:
         """Hand the run to the pilot, or take it back, and carry on."""
-        self.session.demo = not self.session.demo
-        self.mark('demo', playing=self.session.demo)
+        self._play_by(not self.session.demo)
+
+    def _start_demo(self) -> None:
+        """Hand the run to the pilot, and carry on."""
+        self._play_by(True)
+
+    def _play_by(self, pilot: bool) -> None:
+        self.session.demo = pilot
+        self.mark('demo', playing=pilot)
         self._resume()
 
     def _restart(self) -> None:
+        self.demo = self.session.demo
         self.seed += 1
         self._start(self.seed)
 
@@ -245,7 +263,7 @@ class RunnerContext(Context):
         self.model.update(frame.dt)
         self._place_runner(frame)
         self.treasure.update(game, now)
-        self.hud.update(game)
+        self.hud.update(game, frame.events, now)
         self._look_through(frame)
         self._stream()
 

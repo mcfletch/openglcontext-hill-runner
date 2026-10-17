@@ -16,6 +16,7 @@ from openglcontext_hill_runner.app import RunnerContext
 CONTROLS = """\
 Hill runner: left and right hop between the paths, up jumps, down slides.
 Escape opens the menu. F2 saves a screenshot. Alt+F shows the developer overlay.
+Three hits end a run, and 500 m run without one heals a hit.
 """
 
 
@@ -40,6 +41,7 @@ def main(argv: Any = None) -> None:
     args = build_parser().parse_args(argv)
     RunnerContext.seed = args.seed
     RunnerContext.demo = args.demo
+    RunnerContext.main_menu = not args.demo
     RunnerContext.sound = not args.no_sound
     RunnerContext.photos = not args.no_photos
     RunnerContext.forest = not args.no_forest

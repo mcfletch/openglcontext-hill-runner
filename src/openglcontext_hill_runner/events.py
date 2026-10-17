@@ -13,4 +13,9 @@ class Event(enum.Enum):
     SLIDE = 'slide'
     COIN = 'coin'
     JEWEL = 'jewel'
+    #: The runner hit an obstacle and has damage left to take.
+    HIT = 'hit'
+    #: Metres run without a hit took one damage away.
+    HEAL = 'heal'
+    #: The hit that ended the run.
     CRASH = 'crash'

@@ -69,6 +69,8 @@ _SOUNDS = {
     Event.COIN: Sound('coin', 0.7),
     Event.JEWEL: Sound('chime', 0.8),
     Event.CRASH: Sound('crash', 1.0),
+    Event.HIT: Sound('crash', 0.7, 1.15),
+    Event.HEAL: Sound('chime', 0.5, 0.8),
     Event.HOP: Sound(STEP, 0.5),
     Event.LAND: Sound(STEP, 0.9),
 }

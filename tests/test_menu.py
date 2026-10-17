@@ -1,4 +1,4 @@
-"""The pause and game-over screens."""
+"""The main, pause and game-over screens."""
 import pytest
 from OpenGLContext.ui.widgets import Button
 
@@ -24,6 +24,42 @@ def actions():
     calls = []
     return calls, {name: (lambda name=name: calls.append(name))
                    for name in ('resume', 'restart', 'settings', 'credits', 'quit', 'demo')}
+
+
+def main_screen(calls):
+    return menu.main_panel(
+        on_play=lambda: calls.append('play'), on_demo=lambda: calls.append('demo'),
+        on_settings=lambda: calls.append('settings'), on_credits=lambda: calls.append('credits'),
+        on_quit=lambda: calls.append('quit'))
+
+
+def test_the_main_screen_offers_play_demo_settings_credits_and_quit():
+    calls = []
+    offered = buttons(main_screen(calls))
+    assert list(offered) == ['play', 'demo', 'settings', 'credits', 'quit']
+    for button in offered.values():
+        button.on_activate(button)
+    assert calls == ['play', 'demo', 'settings', 'credits', 'quit']
+
+
+def test_the_main_screen_is_titled_for_the_game_and_cannot_be_dismissed_without_choosing():
+    panel = main_screen([])
+    assert panel.title == 'Hill Runner'
+    assert panel.modal and not panel.closeOnEscape
+
+
+def test_settings_and_credits_open_over_the_main_screen_and_the_others_close_it():
+    for name, closes in (('settings', False), ('credits', False), ('play', True),
+                         ('demo', True), ('quit', True)):
+        calls = []
+        panel = main_screen(calls)
+        button = buttons(panel)[name]
+        button.on_activate(button)
+        assert (calls, panel.closed) == ([name], closes), name
+
+
+def test_the_main_screens_demo_button_says_demo_whatever_the_state_of_the_run():
+    assert buttons(main_screen([]))['demo'].text == 'Demo'
 
 
 def test_the_pause_screen_offers_resume_restart_demo_settings_credits_and_quit(actions):

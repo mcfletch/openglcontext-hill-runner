@@ -29,8 +29,8 @@ SLIDE = Credit('Animation Slide: a baseball slide added to the figure (grass-clu
                'this project', 'CC0 1.0', 'hill-runner')
 
 AUDIO = (
-    Credit('Music: Virtual Rush', 'Vitalezzz', 'CC0 1.0',
-           'https://opengameart.org/content/virtual-rush'),
+    Credit('Music: Medieval: Market Day', 'RandomMind', 'CC0 1.0',
+           'https://opengameart.org/content/medieval-market-day'),
     Credit('Footsteps, coins: RPG Audio; impacts: Impact Sounds', 'Kenney', 'CC0 1.0',
            'https://kenney.nl'),
     Credit('Slide: Scrapes', 'AntumDeluge', 'CC0 1.0',

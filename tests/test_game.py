@@ -4,6 +4,7 @@ import pytest
 from openglcontext_hill_runner import course as c
 from openglcontext_hill_runner import game as g
 from openglcontext_hill_runner.events import Event
+from openglcontext_hill_runner.runner import START_SPEED
 
 FRAME = 1 / 60
 
@@ -25,7 +26,7 @@ class Empty(c.Course):
 def play(game, until, command=None):
     """Advance in frames until ``until(game)``; returns the events heard."""
     heard = []
-    for frame in range(60 * 30):
+    for frame in range(60 * 240):
         if command is not None:
             command(game, frame)
         heard += game.advance(FRAME)
@@ -45,11 +46,12 @@ def test_a_clear_hill_can_be_run_for_ever():
     assert game.meters >= 300
 
 
-def test_running_into_a_wall_ends_the_run():
+def test_running_into_a_wall_is_a_hit_and_the_run_goes_on():
     game = g.Game(Empty([c.Obstacle(c.Kind.WALL, 1, 30.0)]))
     heard = play(game, reaches(60))
-    assert game.state is g.State.CRASHED
-    assert Event.CRASH in heard
+    assert game.state is g.State.RUNNING
+    assert game.damage == 1
+    assert Event.HIT in heard and Event.CRASH not in heard
     assert game.crashed_into.kind is c.Kind.WALL
 
 
@@ -63,11 +65,11 @@ def test_a_low_obstacle_is_jumped_over_and_stops_a_runner_who_stays_down():
     low = c.Obstacle(c.Kind.LOW, 1, 40.0)
     ran_into = g.Game(Empty([low]))
     play(ran_into, reaches(80))
-    assert ran_into.state is g.State.CRASHED
+    assert ran_into.damage == 1
 
     jumper = g.Game(Empty([low]))
     play(jumper, reaches(80), jump_before(jumper, 40.0))
-    assert jumper.state is g.State.RUNNING
+    assert jumper.damage == 0
 
 
 def jump_before(game, obstacle_distance):
@@ -83,7 +85,7 @@ def test_a_high_obstacle_is_slid_under_and_hits_a_runner_who_stands():
     high = c.Obstacle(c.Kind.HIGH, 1, 40.0)
     standing = g.Game(Empty([high]))
     play(standing, reaches(80))
-    assert standing.state is g.State.CRASHED
+    assert standing.damage == 1
 
     sliding = g.Game(Empty([high]))
 
@@ -91,13 +93,13 @@ def test_a_high_obstacle_is_slid_under_and_hits_a_runner_who_stands():
         if 40.0 - game.runner.distance <= game.runner.speed * 0.2:
             game.runner.slide()
     play(sliding, reaches(80), slide_before)
-    assert sliding.state is g.State.RUNNING
+    assert sliding.damage == 0
 
 
 def test_jumping_does_not_clear_a_high_obstacle():
     game = g.Game(Empty([c.Obstacle(c.Kind.HIGH, 1, 40.0)]))
     play(game, reaches(80), jump_before(game, 40.0))
-    assert game.state is g.State.CRASHED
+    assert game.damage == 1
 
 
 def test_an_obstacle_across_two_paths_stops_a_runner_in_either():
@@ -105,20 +107,20 @@ def test_an_obstacle_across_two_paths_stops_a_runner_in_either():
         game = g.Game(Empty([c.Obstacle(c.Kind.WALL, 1, 30.0, span=2)]))
         game.runner.lane = lane
         play(game, reaches(60))
-        assert game.state is g.State.CRASHED, lane
+        assert game.damage == 1, lane
 
 
 def test_a_two_path_obstacle_leaves_the_other_path_clear():
     game = g.Game(Empty([c.Obstacle(c.Kind.WALL, 1, 30.0, span=2)]))
     game.runner.lane = 0
     play(game, reaches(60))
-    assert game.state is g.State.RUNNING
+    assert game.damage == 0
 
 
 def test_an_obstacle_in_the_next_path_is_missed_by_a_runner_on_this_one():
     game = g.Game(Empty([c.Obstacle(c.Kind.WALL, 2, 30.0), c.Obstacle(c.Kind.WALL, 0, 30.0)]))
     play(game, reaches(60))
-    assert game.state is g.State.RUNNING
+    assert game.damage == 0
 
 
 def test_a_coin_in_the_runners_path_is_taken_once_for_its_value():
@@ -160,8 +162,8 @@ def test_a_coin_in_another_path_is_left_behind():
 
 
 def test_the_crashed_run_stands_still():
-    game = g.Game(Empty([c.Obstacle(c.Kind.WALL, 1, 30.0)]))
-    play(game, reaches(60))
+    game = g.Game(Empty(walls(30.0, 70.0, 110.0)))
+    play(game, reaches(200))
     where = game.runner.distance
     game.advance(1.0)
     assert game.runner.distance == where
@@ -177,12 +179,100 @@ def test_a_long_step_is_taken_in_small_ones_so_nothing_is_stepped_over():
     game = g.Game(Empty([c.Obstacle(c.Kind.WALL, 1, 30.0)]))
     game.runner.distance = 25.0
     heard = game.advance(1.0)
-    assert Event.CRASH in heard
+    assert Event.HIT in heard
 
 
 def test_a_new_run_starts_clean():
-    game = g.Game(Empty([c.Obstacle(c.Kind.WALL, 1, 30.0)]))
-    play(game, reaches(60))
+    game = g.Game(Empty(walls(30.0, 70.0, 110.0)))
+    play(game, reaches(200))
     game.restart()
-    assert (game.state, game.runner.distance, game.coins, game.points,
-            game.crashed_into) == (g.State.RUNNING, 0.0, 0, 0, None)
+    assert (game.state, game.runner.distance, game.coins, game.points, game.damage,
+            game.crashed_into) == (g.State.RUNNING, 0.0, 0, 0, 0, None)
+
+
+# -- damage ---------------------------------------------------------------------------
+
+def walls(*distances, lane=1):
+    return [c.Obstacle(c.Kind.WALL, lane, d) for d in distances]
+
+
+def run_to(game, distance):
+    """Run until the runner is ``distance`` down the hill; returns the events heard."""
+    return play(game, lambda game: game.runner.distance >= distance
+                or game.state is g.State.CRASHED)
+
+
+def test_a_hit_takes_the_runners_speed_back_to_where_it_started():
+    game = g.Game(Empty(walls(30.0)))
+    game.runner.speed = 20.0
+    play(game, lambda game: game.damage == 1)
+    assert game.runner.speed == pytest.approx(START_SPEED, abs=0.01)
+
+
+def test_the_runner_speeds_up_again_after_a_hit():
+    game = g.Game(Empty(walls(30.0)))
+    game.runner.speed = 20.0
+    play(game, lambda game: game.damage == 1)
+    run_to(game, 200.0)
+    assert START_SPEED < game.runner.speed < 20.0
+
+
+def test_one_obstacle_is_one_hit_however_long_the_runner_is_in_it():
+    game = g.Game(Empty([c.Obstacle(c.Kind.WALL, 1, 30.0), c.Obstacle(c.Kind.LOW, 1, 33.0)]))
+    heard = run_to(game, 90.0)
+    assert (game.damage, heard.count(Event.HIT)) == (1, 1)
+
+
+def test_the_third_hit_ends_the_run():
+    game = g.Game(Empty(walls(30.0, 70.0, 110.0)))
+    heard = run_to(game, 300.0)
+    assert (game.damage, game.state) == (3, g.State.CRASHED)
+    assert heard.count(Event.HIT) == 2 and heard.count(Event.CRASH) == 1
+
+
+def test_two_hits_leave_the_runner_running():
+    game = g.Game(Empty(walls(30.0, 70.0)))
+    run_to(game, 300.0)
+    assert (game.damage, game.state) == (2, g.State.RUNNING)
+
+
+def test_the_runner_cannot_be_hit_again_while_it_is_recovering():
+    game = g.Game(Empty(walls(30.0, 30.0 + g.RECOVERY_DISTANCE - 2.0)))
+    run_to(game, 150.0)
+    assert game.damage == 1
+
+
+def test_an_obstacle_after_the_recovery_is_a_hit():
+    game = g.Game(Empty(walls(30.0, 30.0 + g.RECOVERY_DISTANCE + 8.0)))
+    run_to(game, 150.0)
+    assert game.damage == 2
+
+
+def test_five_hundred_metres_without_a_hit_heals_one_damage():
+    game = g.Game(Empty(walls(30.0, 70.0)))
+    run_to(game, 70.0 + g.HEAL_DISTANCE - 20.0)
+    assert game.damage == 2
+    heard = run_to(game, 70.0 + g.HEAL_DISTANCE + 20.0)
+    assert (game.damage, heard.count(Event.HEAL)) == (1, 1)
+
+
+def test_the_five_hundred_metres_are_counted_from_the_last_hit():
+    game = g.Game(Empty(walls(30.0, 400.0)))
+    run_to(game, 30.0 + g.HEAL_DISTANCE + 50.0)
+    assert game.damage == 2
+    run_to(game, 400.0 + g.HEAL_DISTANCE + 50.0)
+    assert game.damage == 1
+
+
+def test_every_five_hundred_metres_heals_another():
+    game = g.Game(Empty(walls(30.0, 70.0)))
+    run_to(game, 70.0 + 2 * g.HEAL_DISTANCE + 20.0)
+    assert game.damage == 0
+
+
+def test_a_runner_with_no_damage_has_nothing_to_heal_and_a_long_run_is_not_credit():
+    game = g.Game(Empty(walls(1500.0)))
+    heard = run_to(game, 1400.0)
+    assert (game.damage, Event.HEAL in heard) == (0, False)
+    run_to(game, 1600.0)
+    assert game.damage == 1

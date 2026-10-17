@@ -45,15 +45,16 @@ def test_the_run_is_over_a_moment_after_the_crash():
     world = c.Course(1)
     session = Session(world)
     session.game.runner.distance = 0.0
-    wall = c.Obstacle(c.Kind.WALL, 1, 12.0)
+    walls = tuple(c.Obstacle(c.Kind.WALL, 1, d) for d in (12.0, 50.0, 90.0))
     world.chunk(0)
-    world._chunks[0] = c.Chunk(0, 0.0, (wall,), (), ())
+    world._chunks[0] = c.Chunk(0, 0.0, walls, (), ())
     heard = []
-    for _ in range(300):
+    for _ in range(60 * 30):
         heard += [s.name for s in session.step(FRAME).sounds]
         if session.game.state is g.State.CRASHED:
             break
-    assert 'crash' in heard
+    assert session.game.damage == g.MAX_DAMAGE
+    assert heard.count('crash') == g.MAX_DAMAGE
     assert not session.over
     for _ in range(round(GAME_OVER_DELAY / FRAME) + 2):
         session.step(FRAME)
@@ -64,14 +65,14 @@ def test_the_demo_pilot_runs_a_course_unaided():
     session = Session(c.Course(2), demo=True)
     for _ in range(60 * 30):
         session.step(FRAME)
-    assert session.game.state is g.State.RUNNING
+    assert session.game.damage == 0
     assert session.game.runner.distance > 200
     assert session.game.coins > 0
 
 
 def test_without_a_pilot_the_runner_that_does_nothing_eventually_crashes():
     session = Session(c.Course(2))
-    for _ in range(60 * 60):
+    for _ in range(60 * 240):
         session.step(FRAME)
         if session.game.state is g.State.CRASHED:
             break

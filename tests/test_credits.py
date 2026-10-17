@@ -31,7 +31,7 @@ def test_the_ground_photographs_are_credited_only_when_they_are_used():
 
 def test_the_music_and_each_sound_are_credited():
     text = credits.text(forest=False, photos=False)
-    for name in ('Vitalezzz', 'Kenney', 'AntumDeluge', 'Cici Fyre'):
+    for name in ('RandomMind', 'Kenney', 'AntumDeluge', 'Cici Fyre'):
         assert name in text
 
 

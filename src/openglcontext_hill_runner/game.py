@@ -18,12 +18,19 @@ COIN_REACH = 0.3
 COIN_DEPTH = 0.6
 #: Forgiveness at the feet: a toe over the top of a log is a clear jump.
 FEET_FORGIVENESS = 0.08
+#: Hits that end the run.
+MAX_DAMAGE = 3
+#: Metres run without a hit that take one damage away.
+HEAL_DISTANCE = 500.0
+#: Metres after a hit in which nothing hits the runner again, so one row of obstacles is one hit.
+RECOVERY_DISTANCE = 15.0
 
 
 class State(enum.Enum):
     """Whether the run is going or has ended."""
 
     RUNNING = 'running'
+    #: The last of the damage was taken.
     CRASHED = 'crashed'
 
 
@@ -40,8 +47,17 @@ class Game:
         self.state = State.RUNNING
         self.coins = 0
         self.points = 0
+        #: Hits taken and not yet healed, up to :data:`MAX_DAMAGE`.
+        self.damage = 0
+        #: The obstacle of the latest hit.
         self.crashed_into: c.Obstacle | None = None
+        self._last_hit = 0.0
         self._taken: set[tuple[int, int]] = set()
+
+    @property
+    def recovering(self) -> bool:
+        """Whether a hit was taken so recently that nothing can hit the runner again."""
+        return self.damage > 0 and self.runner.distance < self._last_hit + RECOVERY_DISTANCE
 
     @property
     def meters(self) -> int:
@@ -62,13 +78,31 @@ class Game:
             self.runner.advance(dt / steps)
             heard += self.runner.drain_events()
             heard += self._collect()
-            if self._crashed():
-                heard.append(Event.CRASH)
-                break
+            if self._hit():
+                self.damage += 1
+                self.runner.stumble()
+                if self.damage >= MAX_DAMAGE:
+                    self.state = State.CRASHED
+                    heard.append(Event.CRASH)
+                    break
+                heard.append(Event.HIT)
+            elif self._healed():
+                heard.append(Event.HEAL)
         return heard
 
     # -- rules --
-    def _crashed(self) -> bool:
+    def _healed(self) -> bool:
+        """Take one damage away if :data:`HEAL_DISTANCE` has been run since the last hit or heal."""
+        if self.damage == 0 or self.runner.distance < self._last_hit + HEAL_DISTANCE:
+            return False
+        self.damage -= 1
+        self._last_hit = self.runner.distance
+        return True
+
+    def _hit(self) -> bool:
+        """Whether the runner is in an obstacle it cannot be in; records it if so."""
+        if self.recovering:
+            return False
         runner = self.runner
         low, high = runner.band
         reach = BODY_HALF_DEPTH + max(c.DEPTH.values()) / 2.0
@@ -81,8 +115,8 @@ class Game:
                 continue
             bottom, top = obstacle.kind.band
             if low + FEET_FORGIVENESS < top and high > bottom:
-                self.state = State.CRASHED
                 self.crashed_into = obstacle
+                self._last_hit = runner.distance
                 return True
         return False
 
