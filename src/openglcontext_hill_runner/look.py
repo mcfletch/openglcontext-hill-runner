@@ -146,11 +146,25 @@ def sand_maps(size: int = SIZE) -> sf.Maps:
                    np.zeros((size, size)), np.clip(0.3 + 0.5 * ripple, 0.0, 1.0))
 
 
+#: The tint of the stone an obstacle is made of, and the light it gives of its own, so that a
+#: boulder in shadow still shows against the rock about it.
+PALE = (1.0, 0.96, 0.88)
+GLOW = (0.07, 0.065, 0.058)
 #: The colour weathered timber has next to the living bark of the photograph.
 WEATHERED = (0.62, 0.56, 0.50)
 #: The CC0 photographs for each ground layer, by ambientCG name or id.
 PHOTOGRAPHS = {Layer.GRASS: 'grass', Layer.FOREST_FLOOR: 'forest_floor', Layer.ROCK: 'rock',
                Layer.SAND: 'sand'}
+
+
+def _boulder(size: int, photos: bool) -> PhysicalMaterial:
+    """The stone of an obstacle: the rock photograph or a pale sandstone, with a glow of its own."""
+    material: PhysicalMaterial = (
+        (photos and cc0.physical_material(PHOTOGRAPHS[Layer.ROCK], tint=PALE))
+        or sf.pbr_material(sf.sandstone(size, colour=(0.62, 0.58, 0.5), seed=9), relief=3.0,
+                           metallic=0.0))
+    material.emissiveColor = GLOW
+    return material
 
 
 def make_look(size: int = SIZE, photos: bool = False) -> Look:
@@ -176,6 +190,7 @@ def make_look(size: int = SIZE, photos: bool = False) -> Look:
         parts={
             Part.ROCK: (photos and cc0.physical_material(PHOTOGRAPHS[Layer.ROCK])) or sf.pbr_material(
                 sf.sandstone(size, colour=(0.34, 0.33, 0.31), seed=9), relief=3.0, metallic=0.0),
+            Part.BOULDER: _boulder(size, photos),
             Part.BARK: (photos and cc0.physical_material('bark', tint=WEATHERED)) or sf.pbr_material(
                 bark_maps(size), relief=3.0, metallic=0.0),
             Part.CUT: sf.pbr_material(end_grain_maps(size), relief=1.5, metallic=0.0),

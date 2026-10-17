@@ -206,13 +206,13 @@ def test_an_obstacle_across_two_paths_fills_both(land, kind):
 def test_a_low_obstacle_is_a_log_in_one_place_and_a_boulder_in_another(land):
     made = {tuple(sorted(p.name for p in s.obstacle(
         land, c.Obstacle(c.Kind.LOW, 1, 40.0 * i)))) for i in range(1, 40)}
-    assert ('BARK', 'CUT') in made and ('ROCK',) in made
+    assert ('BARK', 'CUT') in made and ('BOULDER',) in made
 
 
 def test_a_wall_is_stacked_logs_in_one_place_and_piled_rock_in_another(land):
     made = {tuple(sorted(p.name for p in s.obstacle(
         land, c.Obstacle(c.Kind.WALL, 1, 40.0 * i)))) for i in range(1, 40)}
-    assert ('BARK', 'CUT') in made and ('ROCK',) in made
+    assert ('BARK', 'CUT') in made and ('BOULDER',) in made
 
 
 def test_an_obstacle_across_a_trail_that_is_turning_turns_with_it(land):
@@ -402,25 +402,43 @@ def test_a_crevice_is_cut_into_the_ground_and_stands_nothing_on_it():
     assert s.obstacle(ls.Landscape(c.Course(3)), crevice) == {}
 
 
-def test_the_ground_texture_is_on_the_plan_in_the_open_and_runs_up_the_walls_of_a_cave():
+def test_the_ground_texture_is_on_the_plan_in_the_open_and_runs_up_the_face_a_cave_is_bored_in():
     land = ls.Landscape(c.Course(1))
     cave = land.course.caves_between(0.0, 60000.0)[0]
     columns = len(s._columns())
     open_index = c.chunk_index(cave.start - 400.0)
     ground = s.terrain(land, open_index, open_index * c.CHUNK_LENGTH)
     assert np.array_equal(ground.texcoords[:, 0] * s.GROUND_REPEAT, ground.positions[:, 0])
-    index = c.chunk_index((cave.start + cave.end) / 2)
-    ground = s.terrain(land, index, index * c.CHUNK_LENGTH)
-    u = ground.texcoords[:, 0].reshape(-1, columns) * s.GROUND_REPEAT
-    x = ground.positions[:, 0].reshape(-1, columns)
-    y = ground.positions[:, 1].reshape(-1, columns)
-    slope = np.abs(np.gradient(y, x[0], axis=1))
-    steep = slope > 2.0
+    index = c.chunk_index(cave.start + ls.FACE_LENGTH / 2)
+    origin = index * c.CHUNK_LENGTH
+    ground = s.terrain(land, index, origin)
+    lattice = len(s._columns()) * (int(round(c.CHUNK_LENGTH / s.ROW_STEP)) + 1)
+    v = ground.texcoords[:lattice, 1].reshape(-1, columns) * s.GROUND_REPEAT
+    y = ground.positions[:lattice, 1].reshape(-1, columns)
+    z = ground.positions[:lattice, 2].reshape(-1, columns)
+    d = origin - z[:, :1]
+    slope = np.abs(np.gradient(y, -z[:, 0], axis=0))
+    on_the_face = (d > cave.start + 4.0) & (d < cave.start + ls.FACE_LENGTH - 4.0)
+    near_the_trail = np.abs(ground.positions[:lattice, 0].reshape(-1, columns)
+                            - float(land.course.centre(cave.start))) < 4.0
+    steep = on_the_face & near_the_trail & (slope > 1.0)
     assert steep.any()
-    # Up a wall the coordinate runs as fast as the surface does, which is faster than the plan.
-    rate = np.abs(np.gradient(u, x[0], axis=1))
-    assert (rate[steep] >= 0.9 * np.sqrt(1.0 + slope[steep] ** 2)).mean() > 0.9
-    assert (rate[steep] > 1.5).all()
+    # Up the face the coordinate runs as fast as the surface does, which is faster than the plan.
+    rate = np.abs(np.gradient(v, -z[:, 0], axis=0))
+    assert (rate[steep] >= 0.8 * np.sqrt(1.0 + slope[steep] ** 2)).mean() > 0.9
+
+
+def test_the_texture_along_the_hill_is_continuous_across_a_caves_faces_and_beyond():
+    land = ls.Landscape(c.Course(1))
+    cave = land.course.caves_between(0.0, 60000.0)[0]
+    d = np.linspace(cave.start - 30.0, cave.end + 200.0, 4000)
+    x = np.full_like(d, float(land.course.centre(cave.start)) + 9.0)
+    along = d + np.asarray(land.face_stretch(x, d))
+    assert np.abs(np.diff(along)).max() < 1.5 * (d[1] - d[0]) * 3.0
+    assert np.all(np.diff(along) > 0.0)
+    assert np.asarray(land.face_stretch(x, d))[0] == 0.0
+    end = np.asarray(land.face_stretch(x[-1:], d[-1:]))[0]
+    assert end / s.GROUND_REPEAT == pytest.approx(round(end / s.GROUND_REPEAT), abs=1e-6)
 
 
 def test_neighbouring_tiles_agree_on_the_texture_where_they_meet(land):

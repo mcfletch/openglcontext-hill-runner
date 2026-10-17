@@ -313,6 +313,11 @@ def test_shadows_end_inside_the_radius_the_near_trees_are_drawn_to():
     assert 0.5 * NEAR_RADIUS < RunnerContext.contextDefinition.shadowDistance < NEAR_RADIUS
 
 
+def test_the_suns_shadows_are_not_black():
+    from openglcontext_hill_runner import app
+    assert 0.4 <= app.SHADOW_INTENSITY <= 0.8
+
+
 def test_the_window_asks_for_shadows_with_three_cascades():
     definition = RunnerContext.contextDefinition
     assert definition.shadows is True and definition.shadowCascades == 3

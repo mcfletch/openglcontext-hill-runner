@@ -112,7 +112,7 @@ def smooth(t: Any) -> np.ndarray:
 #: numbers however their other keys happen to fall.
 STREAMS = {name: number for number, name in enumerate(
     ('chunk', 'forks', 'wander', 'zones', 'branch', 'obstacle', 'trees', 'rocks', 'woods', 'divider',
-     'caves'), 1)}
+     'caves', 'tunnel'), 1)}
 
 
 def stream(seed: int, name: str, *index: int) -> np.random.Generator:

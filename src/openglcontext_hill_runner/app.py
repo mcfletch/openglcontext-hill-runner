@@ -61,6 +61,9 @@ SKY = [(0.26, 0.48, 0.84), (0.55, 0.74, 0.94), (0.84, 0.90, 0.93)]
 HAZE = (0.80, 0.87, 0.92)
 #: How bright the sun is in the open.
 SUN_INTENSITY = 2.4
+#: How dark the sun's shadows are, from 0 (none) to 1 (black): dark enough to read as shade, and
+#: no darker than lets an obstacle in it be seen.
+SHADOW_INTENSITY = 0.65
 
 
 class RunnerContext(Context):
@@ -153,7 +156,8 @@ class RunnerContext(Context):
             HillTiles(self.land, self.look, trees=self.woods is None), reach=REACH, fovy=FOV)
         self._fog = Fog(color=HAZE, visibilityRange=HAZE_RANGE)
         self._sun = DirectionalLight(direction=SUN, color=(1.0, 0.96, 0.88),
-                                     intensity=SUN_INTENSITY, shadows=True)
+                                     intensity=SUN_INTENSITY, shadows=True,
+                                     shadowIntensity=SHADOW_INTENSITY)
         self._air: atmosphere.Air | None = None
         self._clip = ''
         self._game_over_shown = False

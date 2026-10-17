@@ -116,7 +116,7 @@ def chunk_trees(land: Landscape, index: int) -> Trees:
     crown = np.array([KINDS[k][-3] for k in kinds]) * heights / 2.0 * CROWN_REACH
     wanted = present & (rng.random(count) * DENSITY_MAX < density) & (
         land.trail_gap(x, d) >= CLEARING + crown)
-    positions = np.stack([x, land.height(x, d) - sink * heights, -d], axis=-1).astype(np.float32)
+    positions = np.stack([x, land.surface(x, d) - sink * heights, -d], axis=-1).astype(np.float32)
     yaws = rng.uniform(0.0, 2.0 * math.pi, count).astype(np.float32)
     keep = np.zeros(count, bool)
     if wanted.any():

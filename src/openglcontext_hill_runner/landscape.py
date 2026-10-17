@@ -38,15 +38,15 @@ ROCK_CLEAR = 1.0
 ROCK_FADE = 1.5
 #: How high the bare rock of rock country stands above the land, in metres.
 ROCK_HEIGHT = 0.7
-#: A cave's corridor is this wide from the trail's middle, its walls rise over WALL_RISE
-#: metres to HILL_HEIGHT above the trail, give or take HILL_RELIEF, which is higher than any
-#: ceiling by the thickness of the rock over it, and the hill gathers about it over MOUTH_RISE
-#: metres before its mouth and after its end.
+#: A cave's corridor is this wide from the trail's middle. Over the length of the cave the valley
+#: is filled to the height of the hills beside it, which is higher than any ceiling by the
+#: thickness of the rock over it, and the fill rises from the floor at the mouth and falls to it
+#: at the far end over FACE_LENGTH metres.
 CAVE_HALF_WIDTH = 2.6
-WALL_RISE = 2.5
-HILL_HEIGHT = 17.0
-HILL_RELIEF = 2.0
-MOUTH_RISE = 22.0
+FACE_LENGTH = 22.0
+#: Past a cave's mouth or end the surface is this many metres from a trail, which is as far as
+#: the land has risen to its banks.
+FAR_FROM_TRAIL = 1000.0
 #: Rock country is forced this far before a cave and the way out blends to its country over
 #: OUT_BLEND metres past the end; the force fades over the CAVE_FADE before and after.
 CAVE_LEAD = 200.0
@@ -69,6 +69,22 @@ LUMP_HEIGHT = 0.22
 TRAIL_RELIEF = 0.15
 #: Patches of lush and of dry ground, a few metres across.
 PATCH_METRES = 3.5
+
+
+#: The metres a ground texture repeats, which the stretch of a face settles to a whole number of,
+#: and over how many metres past a cave's end it does.
+FACE_REPEAT = 2.0
+FACE_SETTLE = 30.0
+#: Points of the rule that integrates how much longer a face is than the plan under it.
+_NODES, _WEIGHTS = np.polynomial.legendre.leggauss(8)
+
+
+def _face_length(t: np.ndarray, steep: np.ndarray) -> np.ndarray:
+    """How much longer than ``t`` of its plan a face is, as a fraction of the plan, for a face that
+    rises ``steep`` metres for every metre of plan: a smooth rise over the whole of it."""
+    u = t[..., None] * (0.5 + 0.5 * _NODES)
+    slope = steep[..., None] * 6.0 * u * (1.0 - u)
+    return np.asarray(FACE_LENGTH * t * 0.5 * np.sum(_WEIGHTS * (np.sqrt(1.0 + slope ** 2) - 1.0), axis=-1))
 
 
 class Biome(enum.Enum):
@@ -255,25 +271,50 @@ class Landscape:
         return np.asarray(out * (1.0 - force) + forced * force)
 
     def hill(self, distance: Any) -> np.ndarray:
-        """How much of a cave's hill stands at each distance, from 0 to 1."""
-        stands, _roof = self._hill(np.atleast_1d(np.asarray(distance, dtype=np.float64)).ravel())
-        return np.asarray(stands)
+        """How much of a cave's hill stands at each distance, from 0 to 1: 0 outside the cave and
+        1 more than FACE_LENGTH metres inside either end of it."""
+        return np.asarray(self._hill(np.atleast_1d(np.asarray(distance, dtype=np.float64)).ravel()))
 
-    def _hill(self, d: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
-        """How much of a cave's hill stands at each distance, 0 to 1, and how high the ceiling
-        is, at the nearest place in the cave to it."""
+    def face_stretch(self, x: Any, distance: Any) -> np.ndarray:
+        """How much further along the surface it is than along the plan from the start of the
+        hill, in metres, where a cave's faces rise and fall: what a texture laid down the hill is
+        moved on by so that it keeps its scale on the face. Where there is no face it is 0, and
+        past a cave it settles to a whole number of ``REPEAT`` metres, so the texture agrees
+        with the land beyond."""
+        x, d = np.broadcast_arrays(np.asarray(x, dtype=np.float64),
+                                   np.asarray(distance, dtype=np.float64))
+        xf, df = x.ravel(), d.ravel()
+        out = np.zeros_like(df)
+        near = np.flatnonzero(df >= c.CAVE_FIRST - FACE_LENGTH)
+        if not len(near):
+            return out.reshape(x.shape)
+        cave = self.course.cave_state(df[near])
+        gap = self.trail_gap(xf[near], df[near])
+        steep = (self._ground(xf[near], df[near], gap + FAR_FROM_TRAIL)
+                 - self._ground(xf[near], df[near], gap)) / FACE_LENGTH
+        t_in = np.clip((df[near] - cave.start) / FACE_LENGTH, 0.0, 1.0)
+        t_out = np.clip((cave.end - df[near]) / FACE_LENGTH, 0.0, 1.0)
+        whole = _face_length(np.ones_like(steep), steep)
+        total = whole + (whole - _face_length(t_out, steep)) + (_face_length(t_in, steep) - whole)
+        settle = c.smooth((df[near] - cave.end) / FACE_SETTLE)
+        end_gap = self.trail_gap(xf[near], cave.end)
+        at_end = (self._ground(xf[near], cave.end, end_gap + FAR_FROM_TRAIL)
+                  - self._ground(xf[near], cave.end, end_gap)) / FACE_LENGTH
+        snapped = np.round(2.0 * _face_length(np.ones_like(at_end), at_end) / FACE_REPEAT) * FACE_REPEAT
+        out[near] = total * (1.0 - settle) + snapped * settle
+        return out.reshape(x.shape)
+
+    def _hill(self, d: np.ndarray) -> np.ndarray:
+        """How much of a cave's hill stands at each distance, 0 to 1."""
         cave = self.course.cave_state(d)
-        rise = (c.smooth((d - (cave.start - MOUTH_RISE)) / MOUTH_RISE)
-                * c.smooth(((cave.end + MOUTH_RISE) - d) / MOUTH_RISE))
-        stands = np.where(d >= c.CAVE_FIRST - MOUTH_RISE, rise, 0.0)
-        roof = np.asarray(self.course.ceiling(np.clip(d, cave.start, cave.end - 1e-3)))
-        return stands, roof
+        rise = c.smooth((d - cave.start) / FACE_LENGTH) * c.smooth((cave.end - d) / FACE_LENGTH)
+        return np.asarray(np.where(d >= c.CAVE_FIRST, rise, 0.0))
 
     def _densely(self, values: "list[float]", x: Any, distance: Any) -> np.ndarray:
         """How thickly something grows, blended from the countries, and none under a cave's hill."""
         x, d = np.broadcast_arrays(np.asarray(x, dtype=np.float64),
                                    np.asarray(distance, dtype=np.float64))
-        stands, _roof = self._hill(d.ravel())
+        stands = self._hill(d.ravel())
         return self._blend(values, x, d) * (1.0 - stands.reshape(d.shape))
 
     def _blend(self, values: "list[float]", x: Any, distance: Any) -> np.ndarray:
@@ -326,46 +367,54 @@ class Landscape:
         return np.asarray(worn * scale * (HUMMOCK_HEIGHT * hummocks + LUMP_HEIGHT * lumps))
 
     def height(self, x: Any, distance: Any, crevices: bool = True) -> np.ndarray:
-        """Height of the land at ``x`` across the hill and ``distance`` down it, with the
-        crevices cut into the floor of a cave unless ``crevices`` is false."""
+        """Height of the ground at ``x`` across the hill and ``distance`` down it, as a runner
+        finds it: the valley of the trails, with the crevices cut into the floor of a cave
+        unless ``crevices`` is false. :meth:`surface` is the top of the hill over a cave."""
         x, d = np.broadcast_arrays(np.asarray(x, dtype=np.float64),
                                    np.asarray(distance, dtype=np.float64))
-        shape = x.shape
+        xf, df = x.ravel(), d.ravel()
+        height = self._ground(xf, df, self.trail_gap(xf, df))
+        if crevices:
+            height -= self._crevices(xf, df)
+        return np.asarray(height.reshape(x.shape))
+
+    def surface(self, x: Any, distance: Any) -> np.ndarray:
+        """Height of the outside of the hill: :meth:`height` except over a cave, where the valley
+        of the trail is filled to the height of the hills beside it and the tunnel is bored
+        through the fill."""
+        x, d = np.broadcast_arrays(np.asarray(x, dtype=np.float64),
+                                   np.asarray(distance, dtype=np.float64))
         xf, df = x.ravel(), d.ravel()
         gap = self.trail_gap(xf, df)
-        w = self.weights(xf, df)
+        height = self._ground(xf, df, gap)
+        stands = self._hill(df)
+        if stands.any():
+            filled = self._ground(xf, df, gap + FAR_FROM_TRAIL)
+            height = height + stands * (filled - height)
+        return np.asarray(height.reshape(x.shape))
+
+    def _ground(self, x: np.ndarray, d: np.ndarray, gap: np.ndarray) -> np.ndarray:
+        """The land at points ``gap`` metres from the nearest trail."""
+        w = self.weights(x, d)
         bank = _mix([COUNTRY[b].bank for b in _BIOMES], w)
         ramp = _mix([COUNTRY[b].ramp for b in _BIOMES], w)
         scale = _mix([COUNTRY[b].relief for b in _BIOMES], w)
         away = c.smooth((gap - FLAT_HALF_WIDTH) / ramp)
-        form = 0.5 + 0.9 * fbm(xf * 0.021 + 3.0, df * 0.021 - 5.0, seed=21, octaves=4)
-        height: np.ndarray = c.ground_height(df) + bank * away * form + self._relief(xf, df, gap, scale)
-        height += self._character(xf, df, gap, w)
-        height += self._bare_rock(xf, df, gap, w)
-        height += self._cave_walls(xf, df)
-        if crevices:
-            height -= self._crevices(xf, df)
-        return np.asarray(height.reshape(shape))
+        form = 0.5 + 0.9 * fbm(x * 0.021 + 3.0, d * 0.021 - 5.0, seed=21, octaves=4)
+        height: np.ndarray = c.ground_height(d) + bank * away * form + self._relief(x, d, gap, scale)
+        height += self._character(x, d, gap, w)
+        height += self._bare_rock(x, d, gap, w)
+        return height
 
     def footing(self, x: Any, distance: Any) -> np.ndarray:
         """Where a runner's feet stand: the height of the land with no crevice cut in it, since
         a runner crosses a crevice in the air and does not follow the floor down."""
         return self.height(x, distance, crevices=False)
 
-    def _cave_walls(self, x: np.ndarray, d: np.ndarray) -> np.ndarray:
-        """The hill that stands about a cave: the land beside its trail rises over WALL_RISE
-        metres to the top of the hill, so the ceiling is inside it."""
-        stands, _roof = self._hill(d)
-        if not stands.any():
-            return np.zeros_like(x)
-        across = np.abs(x - np.asarray(self.course.centre(d)))
-        top = HILL_HEIGHT + 2.0 * HILL_RELIEF * (fbm(x / 14.0 + 5.0, d / 14.0 - 3.0, seed=83, octaves=2) - 0.5)
-        return np.asarray(stands * top * c.smooth((across - CAVE_HALF_WIDTH) / WALL_RISE))
-
     def _crevices(self, x: np.ndarray, d: np.ndarray) -> np.ndarray:
         """How far the floor is cut away at each point by the crevices of a cave."""
         out = np.zeros_like(x)
-        stands, _roof = self._hill(d)
+        stands = self._hill(d)
         if not stands.any():
             return out
         wanted = stands > 0.0

@@ -56,3 +56,11 @@ def test_each_mottled_surface_has_its_own_colours():
     means = [look.mottled(r, 32).base.mean(axis=(0, 1))
              for r in (look.GRASS, look.DIRT, look.FOREST_FLOOR, look.ROCK)]
     assert len({tuple(np.round(m, 2)) for m in means}) == 4
+
+
+def test_an_obstacles_stone_is_paler_than_the_rock_it_lies_among_and_glows_a_little():
+    made = look.make_look(size=32)
+    boulder, rock = made.parts[Part.BOULDER], made.parts[Part.ROCK]
+    assert boulder is not rock
+    assert max(boulder.emissiveColor) > 0.0
+    assert float(np.mean(boulder.emissiveColor)) < 0.1

@@ -42,16 +42,19 @@ The trail wanders from side to side.
 
 ### Caves
 
-Every two or three kilometres, after a stretch of rock country, the trail runs into a cave: the
-hill closes in over the trail and the trail enters it through an arched opening in a face of rock
-that slopes back 7 m to the top of the hill. The tunnel is 250 to 320 m long, with an arched
-ceiling, and leaves through a second face the same way. It leads out into more rock country or into
+Every two or three kilometres, after a stretch of rock country, the trail runs into a cave. The
+valley is filled up to the height of the hills beside it over 22 m, so the trail runs into the foot of
+a hillside and the cave is a hole bored through it: the ground is tessellated out to the rim of the
+opening, and the tunnel runs from there to a second opening in the far side of the hill. The tunnel
+is 250 to 320 m long, an arch swept along a spline through the trail and cut into rock: flat facets,
+steps and pits (`OpenGLContext.scenegraph.rockwork`). It leads out into more rock country or into
 forest, the seed's choice.
 
 * The ceiling is high in places (4.4 to 7.5 m over the floor) and low in others (2.4 to 3.0 m),
   changing over 16 m. Running or sliding under a low ceiling is safe; **a jump under one is a hit**,
   and so is a jump at the edge of one, since the head arrives at the top of the jump. The camera
-  ducks under a low ceiling and rises again once it is clear.
+  sinks under a low ceiling and rises again once it is clear; where it has sunk it stands to the right
+  of the runner and looks across to the left, so the runner does not hide what is ahead.
 * A crevice runs right across the floor, 1.8 m wide and 2.6 m deep. It has to be jumped, and a runner
   who is on the ground over it is a hit. Crevices stand only where no low ceiling is within 14 m, so
   the jump a crevice asks for is always safe; so is every jump the course asks for in a cave, and the
@@ -61,7 +64,8 @@ forest, the seed's choice.
 * A torch on the wall every 18 m, on alternate sides, is all the light there is. The sun, the sky's light
   and the haze go out over the first 28 m inside the mouth. The torches' lights are the nearest of the
   scene's lights, which is what the engine binds when there are more than it has room for.
-* No fork runs near a cave, and no trees or ground cover grow over one.
+* No fork runs near a cave, and no trees or ground cover grow over one. The stone of an obstacle is
+  paler than the rock about it and glows a little, so it shows in shade.
 
 ### Forks
 
@@ -102,6 +106,7 @@ The rules have no GL and are tested without a window.
 | `cues` | Which clip plays, which sounds fire, when a foot lands |
 | `chase` | The point the camera follows |
 | `session` | One run advanced a frame at a time: the above, together |
+| `tunnel`, `portal` | The tunnel of a cave (the arch swept along the trail, the rock cut into it, the floor) and the ground tessellated out to the rim of each opening |
 | `scenery`, `look`, `tiles` | The hill as meshes and materials, and the tile generator; where one country gives way to another the second ground is blended over the first |
 | `groundcover` | The grass, grown tall, and the other plants of the forest demo's art as two nodes, with where each grows |
 | `woods` | The forest demo's trees, planted a stretch of hill at a time, clear of the trails |

@@ -27,8 +27,11 @@ from openglcontext_hill_runner.look import Look, make_look
 #: How far behind the camera tiles are wanted, as a fraction of the reach ahead.
 #: The camera trails the runner by a few metres and never turns round.
 BEHIND = 0.25
-#: Metres above the highest hill that a tile's bounds reach, and below the lowest ground.
+#: Metres above the highest hill that a tile's bounds reach, and below the lowest ground, and
+#: how far past its chunk along the hill: a triangle of a tunnel or of the ground about its opening
+#: belongs to the chunk its middle is in and reaches a little over the edge.
 HEADROOM = 60.0
+OVERLAP = 8.0
 DEPTH_BELOW = 6.0
 #: A layer drawn over another lies this far above it, in metres.
 OVERLAY_LIFT = 0.012
@@ -78,7 +81,7 @@ class HillTiles:
         half = (top - bottom) / 2.0
         return BoxBV((0.0, (top + bottom) / 2.0, -(start + c.CHUNK_LENGTH / 2.0)),
                      [(s.HALF_WIDTH, 0.0, 0.0), (0.0, half, 0.0),
-                      (0.0, 0.0, c.CHUNK_LENGTH / 2.0)])
+                      (0.0, 0.0, c.CHUNK_LENGTH / 2.0 + OVERLAP)])
 
     def origin(self, key: int) -> tuple[float, float, float]:
         """The world position of chunk ``key``'s start, around which its meshes are built."""

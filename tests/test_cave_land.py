@@ -47,33 +47,48 @@ def test_the_weights_still_sum_to_one_around_a_cave(land):
     assert np.allclose(land.weights(np.zeros_like(d), d).sum(axis=0), 1.0)
 
 
-def test_the_floor_of_a_cave_is_the_trail_and_rock_rises_either_side_above_the_ceiling(land):
+def test_the_floor_of_a_cave_is_the_trail(land):
+    for cave in caves(land):
+        d = (cave.start + cave.end) / 2
+        assert float(land.height(trail(land, d), d)) == pytest.approx(float(c.ground_height(d)), abs=0.35)
+
+
+def test_the_valley_over_a_cave_is_filled_to_the_height_of_the_hills_beside_it(land):
     for cave in caves(land):
         d = (cave.start + cave.end) / 2
         centre = trail(land, d)
+        top = float(land.surface(centre, d))
         floor = float(land.height(centre, d))
-        assert floor == pytest.approx(float(c.ground_height(d)), abs=0.35)
-        roof = float(land.course.ceiling(d))
-        for side in (-1.0, 1.0):
-            rock = float(land.height(centre + side * (ls.CAVE_HALF_WIDTH + ls.WALL_RISE + 1.0), d))
-            assert rock - floor >= max(roof + 5.0, ls.HILL_HEIGHT - ls.HILL_RELIEF), (cave, side)
+        assert top - floor > float(land.course.ceiling(d)) + 8.0, cave
+        beside = [float(land.surface(centre + side * 40.0, d)) for side in (-1.0, 1.0)]
+        assert abs(top - np.mean(beside)) < 0.5 * (top - floor), cave
 
 
-def test_the_walls_stand_close_beside_the_trail(land):
+def test_there_is_no_trench_along_the_top_of_a_cave(land):
     cave = caves(land)[0]
-    d = (cave.start + cave.end) / 2
-    centre = trail(land, d)
-    inside = float(land.height(centre + ls.CAVE_HALF_WIDTH - 0.3, d)) - float(land.height(centre, d))
-    assert abs(inside) < 0.6
+    d = np.linspace(cave.start + ls.FACE_LENGTH + 5.0, cave.end - ls.FACE_LENGTH - 5.0, 20)
+    centre = np.array([trail(land, v) for v in d])
+    across = [np.asarray(land.surface(centre + dx, d)) - np.asarray(land.surface(centre, d))
+              for dx in (-6.0, -3.0, 3.0, 6.0)]
+    assert np.abs(across).max() < 4.0
 
 
-def test_the_hill_rises_to_the_mouth_over_a_few_metres(land):
+def test_the_surface_is_the_height_wherever_there_is_no_cave(land):
     cave = caves(land)[0]
-    side = trail(land, cave.start) + 6.0
-    far, at = cave.start - 3 * ls.MOUTH_RISE, cave.start + 2.0
-    before = float(land.height(side, far)) - float(c.ground_height(far))
-    inside = float(land.height(side, at)) - float(c.ground_height(at))
-    assert inside - before > 10.0
+    for d in (cave.start - 300.0, cave.start - 1.0, cave.end + 1.0, cave.end + 300.0):
+        x = trail(land, d) + np.array([-30.0, -3.0, 0.0, 4.0, 25.0])
+        assert np.allclose(land.surface(x, np.full(5, d)), land.height(x, np.full(5, d), crevices=False))
+
+
+def test_the_hill_rises_from_the_floor_at_the_mouth_and_falls_to_it_at_the_far_end(land):
+    cave = caves(land)[0]
+    for start, sign in ((cave.start, 1.0), (cave.end, -1.0)):
+        d = start + sign * np.linspace(0.0, ls.FACE_LENGTH, 12)
+        x = np.array([trail(land, v) for v in d])
+        rise = np.asarray(land.surface(x, d)) - np.asarray(land.footing(x, d))
+        assert rise[0] == pytest.approx(0.0, abs=0.05)
+        assert rise[-1] > 14.0
+        assert np.all(np.diff(rise) > 0.0)
 
 
 def test_no_trees_grow_over_a_cave_or_stand_on_the_hill_above_it(land):
@@ -87,7 +102,7 @@ def test_no_trees_grow_over_a_cave_or_stand_on_the_hill_above_it(land):
 
 def test_trees_grow_as_they_did_well_away_from_a_cave(land):
     cave = caves(land)[0]
-    d = cave.end + 4 * ls.MOUTH_RISE + 400.0
+    d = cave.end + 4 * ls.FACE_LENGTH + 400.0
     assert float(land.tree_density(trail(land, d) + 20.0, d)) >= 0.0
 
 
