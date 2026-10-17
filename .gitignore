@@ -1,0 +1,15 @@
+*.egg-info/
+*.py[cod]
+__pycache__/
+build/
+dist/
+.coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.tox/
+.venv/
+# Frames written by tools/capture.py when it is pointed at the checkout rather
+# than at plans/images/.
+/*.png
+.oglc-check-cache/

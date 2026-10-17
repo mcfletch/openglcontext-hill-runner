@@ -1,0 +1,489 @@
+"""The hill: its lanes, its slope, and what lies on it. No GL, no clock.
+
+Distance is metres run down the hill and is the only coordinate a rule needs.
+The world places it on the -Z axis (``z = -distance``) with the lanes spread
+along X, so a position in the scene is ``(lane_x(lane), ground_height(d), -d)``.
+
+A course is endless and is made a :class:`Chunk` at a time. A chunk is a pure
+function of the course's seed and its index, so the tile generator that draws
+the hill and the game that plays it ask for the same chunk and get the same
+one, in any order, and a run can be replayed from its seed.
+"""
+import enum
+import math
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+
+# -- the hill ---------------------------------------------------------------
+
+LANE_COUNT = 3
+#: Metres between the centres of neighbouring paths.
+LANE_WIDTH = 0.7
+#: Metres of hill in a chunk, which is also a tile of the streamed world.
+CHUNK_LENGTH = 72.0
+#: Metres of fall for each metre run, before the swell.
+SLOPE = 0.18
+#: The swell: a long rolling wave added to the slope so the hill is not a ramp.
+SWELL = 2.4
+SWELL_LENGTH = 48.0
+#: No point of the hill is steeper than this, in metres of fall per metre run.
+MAX_SLOPE = 0.30
+
+
+def lane_offset(lane: float) -> float:
+    """Where a path lies across its trail, from the trail's middle: lane 0 on the left."""
+    return (lane - (LANE_COUNT - 1) / 2.0) * LANE_WIDTH
+
+
+#: Every path a trail can have: the three of its own, and the two a fork adds to a side.
+ALL_LANES = (-2, -1, 0, 1, 2, 3, 4)
+TRUNK = (0, 1, 2)
+
+#: The trail wanders this far to either side of a straight line, in metres, over waves a
+#: couple of hundred metres long; it runs straight for WANDER_FREE metres and the wander grows
+#: over the WANDER_START after.
+WANDER = 7.0
+WANDER_WAVELENGTH = 190.0
+WANDER_FREE = 100.0
+WANDER_START = 200.0
+
+#: A fork first turns up at FORK_FIRST and then roughly every FORK_SPACING metres. It adds two
+#: paths beside the trail, which draw away to FORK_SEPARATION metres past it over FORK_DIVERGE
+#: metres, run on for a length in FORK_LENGTH, and come back and join.
+FORK_FIRST = 420.0
+FORK_SPACING = 1000.0
+FORK_JITTER = 120.0
+FORK_LENGTH = (380.0, 520.0)
+FORK_DIVERGE = 140.0
+#: Over this many metres at each end a fork's paths grow from nothing to full width.
+FORK_GROW = 12.0
+FORK_SEPARATION = 38.0
+#: No obstacle stands in this many metres after the paths part, in this many before they join,
+#: or in this many after, and the new paths hold none for the first and last stretch.
+FORK_QUIET_AFTER_START = 30.0
+FORK_QUIET_BEFORE_END = 30.0
+FORK_QUIET_AFTER_END = 34.0
+#: A hop reaches this far across, in metres; paths drawn further apart cannot be hopped between.
+HOP_REACH = 1.6 * LANE_WIDTH
+FORK_LIMIT = 600
+
+
+def ground_height(distance: float) -> float:
+    """Height of the paths, in metres, at ``distance`` down the hill."""
+    return -SLOPE * distance + SWELL * math.sin(distance / SWELL_LENGTH)
+
+
+def chunk_index(distance: float) -> int:
+    """The chunk that ``distance`` falls in; the start line is in chunk 0."""
+    return max(0, int(distance // CHUNK_LENGTH))
+
+
+# -- the runner's body, which the obstacles are sized against -----------------
+
+STAND_HEIGHT = 1.7
+SLIDE_HEIGHT = 0.6
+#: Highest the runner's feet rise in a jump.
+JUMP_PEAK = 1.5
+
+# -- what is on the hill ------------------------------------------------------
+
+LOW_TOP = 1.0
+HIGH_BOTTOM = 1.0
+HIGH_TOP = 2.4
+WALL_TOP = 2.4
+MAX_COIN_HEIGHT = 2.6
+#: How high a coin on the level hangs: low enough to read as above its own trail from the
+#: camera behind and over the runner, high enough to be taken without a jump.
+COIN_HEIGHT = 0.5
+#: How high a jewel hangs: past the reach of a standing runner and within that of a jump.
+JEWEL_HEIGHT = 2.3
+#: How much of a coin's height counts when the runner reaches for it, above and below its middle.
+COIN_HALF_HEIGHT = 0.25
+#: A coin stays this far ahead of an obstacle in its own lane, and this far behind it, so that
+#: the runner coming up behind sees the obstacle and not the coin.
+COIN_CLEAR_BEFORE = 8.0
+COIN_CLEAR_AFTER = 1.5
+#: How far past a low obstacle a jewel hangs, where a runner who jumped it is still rising or falling.
+
+
+class Kind(enum.Enum):
+    """What an obstacle asks of the runner."""
+
+    #: A log or a rock: jump over it.
+    LOW = 'low'
+    #: A bough across the path: slide under it.
+    HIGH = 'high'
+    #: A boulder wall: hop to another path.
+    WALL = 'wall'
+
+    @property
+    def band(self) -> tuple[float, float]:
+        """Metres above the ground, bottom and top, that the obstacle fills."""
+        return _BANDS[self]
+
+
+_BANDS = {
+    Kind.LOW: (0.0, LOW_TOP),
+    Kind.HIGH: (HIGH_BOTTOM, HIGH_TOP),
+    Kind.WALL: (0.0, WALL_TOP),
+}
+
+#: How deep along the track an obstacle is, in metres.
+DEPTH = {Kind.LOW: 1.0, Kind.HIGH: 0.3, Kind.WALL: 0.9}
+#: How wide an obstacle is across its path, from its middle to either edge.
+OBSTACLE_HALF_WIDTH = 0.3
+
+
+@dataclass(frozen=True)
+class Obstacle:
+    kind: Kind
+    lane: int
+    #: Where the obstacle's middle lies, in metres down the hill.
+    distance: float
+    #: How many neighbouring paths it stretches across, from ``lane`` on.
+    span: int = 1
+
+    @property
+    def depth(self) -> float:
+        return DEPTH[self.kind]
+
+    @property
+    def lanes(self) -> range:
+        """The paths it blocks."""
+        return range(self.lane, self.lane + self.span)
+
+
+@dataclass(frozen=True)
+class Coin:
+    #: ``(chunk, number)``: a name the game keeps once the coin is taken.
+    ident: tuple[int, int]
+    lane: int
+    distance: float
+    #: Metres above the ground at the coin's centre.
+    height: float
+    #: Points; a gem is worth more than a coin.
+    value: int
+
+
+@dataclass(frozen=True)
+class Divider:
+    """A hedge between ``lane`` and ``lane + 1`` that no one can hop across."""
+
+    lane: int
+    start: float
+    end: float
+
+
+@dataclass(frozen=True)
+class Fork:
+    """Two paths that part from the trail on one side, draw away, and join it again."""
+
+    index: int
+    start: float
+    end: float
+    #: +1 for the right of the trail, -1 for the left.
+    side: int
+
+    @property
+    def lanes(self) -> tuple[int, int]:
+        """The paths it adds."""
+        return (LANE_COUNT, LANE_COUNT + 1) if self.side > 0 else (-1, -2)
+
+
+@dataclass(frozen=True)
+class Chunk:
+    index: int
+    start: float
+    obstacles: tuple[Obstacle, ...]
+    coins: tuple[Coin, ...]
+    dividers: tuple[Divider, ...]
+
+
+# -- making a chunk -----------------------------------------------------------
+
+#: Obstacles stand in rows this far apart, which is more than the runner needs
+#: to hop from one path to the next at full speed.
+ROW_SPACING = 24.0
+ROW_COUNT = int(CHUNK_LENGTH // ROW_SPACING)
+#: Nothing stands on the hill before this distance.
+SAFE_START = 80.0
+#: Obstacles come this many times thicker by the time the course is at its hardest.
+HARDEST_AT_CHUNK = 60
+#: A hedge covers this part of its chunk. Rows inside it hold no wall, and the
+#: row after it is far enough on for a hop to clear its end.
+DIVIDER_FROM = 4.0
+DIVIDER_TO = 28.0
+#: Chance that a chunk past the first few is hedged.
+DIVIDER_CHANCE = 0.3
+WALL_CLEARANCE = 0.0
+
+#: The paths a row may wall off. Two neighbouring walls would leave the third
+#: path's only way out through one of them.
+WALLABLE = ({0}, {1}, {2}, {0, 2})
+
+_KIND_WEIGHTS = ((Kind.LOW, 0.4), (Kind.HIGH, 0.3), (Kind.WALL, 0.3))
+#: How likely each kind is to stretch across two paths rather than one.
+_SPAN_CHANCE = {Kind.LOW: 0.4, Kind.HIGH: 0.35, Kind.WALL: 0.25}
+JEWEL_BEYOND = 2.2
+#: Chance that a jewel hangs past a low obstacle, to reward the jump, and that a chunk has a
+#: run of jewels over a path with nothing in it.
+JEWEL_AFTER_LOG = 0.6
+JEWEL_RUN_CHANCE = 0.3
+
+
+def _smooth(t: np.ndarray) -> np.ndarray:
+    return np.asarray(t * t * (3.0 - 2.0 * t))
+
+
+class Course:
+    """An endless hill, made from a seed."""
+
+    def __init__(self, seed: int = 0) -> None:
+        self.seed = int(seed)
+        self._chunks: dict[int, Chunk] = {}
+        rng = np.random.default_rng([self.seed & 0xFFFFFFFF, 90210])
+        self._phase = rng.uniform(0.0, 2.0 * math.pi, 2)
+        k = np.arange(FORK_LIMIT)
+        self._fork_start = FORK_FIRST + k * FORK_SPACING + rng.uniform(0.0, FORK_JITTER, FORK_LIMIT)
+        self._fork_end = self._fork_start + rng.uniform(*FORK_LENGTH, FORK_LIMIT)
+        self._fork_side = np.where(rng.random(FORK_LIMIT) < 0.5, -1, 1)
+
+    # -- where the paths are --
+    def centre(self, distance: "float | np.ndarray") -> Any:
+        """How far the trail's middle lies to the right of a straight line down the hill."""
+        d = np.asarray(distance, dtype=np.float64)
+        wave = (np.sin(d / WANDER_WAVELENGTH + self._phase[0])
+                + 0.5 * np.sin(d / (0.43 * WANDER_WAVELENGTH) + self._phase[1]))
+        grown = _smooth(np.clip((d - WANDER_FREE) / WANDER_START, 0.0, 1.0))
+        return WANDER * grown * wave / 1.5
+
+    def _fork_state(self, distance: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """For each distance: the lateral offset the fork's paths are drawn out by, and which
+        side they are on (0 where no fork is running)."""
+        d = np.atleast_1d(np.asarray(distance, dtype=np.float64))
+        k = np.clip(np.floor((d - FORK_FIRST) / FORK_SPACING).astype(int), 0, FORK_LIMIT - 1)
+        start, end, side = self._fork_start[k], self._fork_end[k], self._fork_side[k]
+        active = (d >= start) & (d <= end) & (d >= FORK_FIRST)
+        away = _smooth(np.clip((d - start) / FORK_DIVERGE, 0.0, 1.0)) * _smooth(
+            np.clip((end - d) / FORK_DIVERGE, 0.0, 1.0))
+        return np.where(active, side * FORK_SEPARATION * away, 0.0), np.where(active, side, 0), d
+
+    def fork_arrays(self, distance: Any) -> tuple[np.ndarray, ...]:
+        """``(index, start, end, side, running)`` of the fork each distance falls in or after,
+        as arrays; ``running`` is whether it is running at that distance."""
+        d = np.atleast_1d(np.asarray(distance, dtype=np.float64))
+        k = np.clip(np.floor((d - FORK_FIRST) / FORK_SPACING).astype(int), 0, FORK_LIMIT - 1)
+        start, end = self._fork_start[k], self._fork_end[k]
+        return k, start, end, self._fork_side[k], (d >= start) & (d <= end) & (d >= FORK_FIRST)
+
+    def fork_at(self, distance: float) -> "Fork | None":
+        """The fork running at ``distance``, if one is."""
+        k = int((distance - FORK_FIRST) // FORK_SPACING)
+        if distance < FORK_FIRST or not 0 <= k < FORK_LIMIT:
+            return None
+        if self._fork_start[k] <= distance <= self._fork_end[k]:
+            return self._fork(k)
+        return None
+
+    def _fork(self, k: int) -> Fork:
+        return Fork(k, float(self._fork_start[k]), float(self._fork_end[k]),
+                    int(self._fork_side[k]))
+
+    def forks_between(self, start: float, end: float) -> list[Fork]:
+        """The forks that run at any point of ``[start, end]``."""
+        first = max(0, int((start - FORK_FIRST) // FORK_SPACING) - 1)
+        last = min(FORK_LIMIT - 1, int((end - FORK_FIRST) // FORK_SPACING) + 1)
+        return [self._fork(k) for k in range(first, last + 1)
+                if self._fork_end[k] >= start and self._fork_start[k] <= end]
+
+    def lanes_at(self, distance: float) -> tuple[int, ...]:
+        """The paths there are at ``distance``, from left to right."""
+        fork = self.fork_at(distance)
+        if fork is None:
+            return TRUNK
+        return tuple(sorted((*TRUNK, *fork.lanes)))
+
+    def lane_x(self, lane: int, distance: float) -> float:
+        """Across the hill, where path ``lane`` lies at ``distance``."""
+        sep, side, _ = self._fork_state(distance)
+        extra = float(sep[0]) if side[0] != 0 and lane in (
+            (LANE_COUNT, LANE_COUNT + 1) if side[0] > 0 else (-1, -2)) else 0.0
+        return float(self.centre(distance)) + lane_offset(lane) + extra
+
+    def lane_positions(self, distance: "np.ndarray") -> np.ndarray:
+        """Where every path of :data:`ALL_LANES` lies at each distance, ``inf`` where it does
+        not exist: an array of shape ``(len(ALL_LANES), N)``."""
+        sep, side, d = self._fork_state(distance)
+        centre = np.asarray(self.centre(d)).reshape(-1)
+        out = np.empty((len(ALL_LANES), len(d)))
+        for row, lane in enumerate(ALL_LANES):
+            x = centre + lane_offset(lane)
+            if lane in TRUNK:
+                out[row] = x
+            else:
+                right = lane >= LANE_COUNT
+                mine = (side > 0) if right else (side < 0)
+                out[row] = np.where(mine, x + sep, np.inf)
+        return out
+
+    def blocks_hop(self, from_lane: int, to_lane: int, start: float, end: float) -> bool:
+        """Whether a hop made between ``start`` and ``end`` cannot be made: a hedge stands
+        between the two paths, or one of them is not there, or they are drawn too far apart."""
+        low = min(from_lane, to_lane)
+        if abs(from_lane - to_lane) != 1:
+            return False
+        for distance in np.linspace(start, end, 4):
+            here = self.lanes_at(float(distance))
+            if from_lane not in here or to_lane not in here:
+                return True
+            if abs(self.lane_x(from_lane, float(distance))
+                   - self.lane_x(to_lane, float(distance))) > HOP_REACH:
+                return True
+        for index in range(chunk_index(start), chunk_index(end) + 1):
+            for divider in self.chunk(index).dividers:
+                if divider.lane == low and divider.start < end and divider.end > start:
+                    return True
+        return False
+
+    def chunk(self, index: int) -> Chunk:
+        """Chunk ``index``; the same one every time it is asked for."""
+        if index not in self._chunks:
+            self._chunks[index] = self._make(index)
+        return self._chunks[index]
+
+    def obstacles_between(self, start: float, end: float) -> list[Obstacle]:
+        """The obstacles whose middles lie in ``[start, end)``, nearest first."""
+        found = [o for index in range(chunk_index(start), chunk_index(end) + 1)
+                 for o in self.chunk(index).obstacles if start <= o.distance < end]
+        return sorted(found, key=lambda o: o.distance)
+
+    def coins_between(self, start: float, end: float) -> list[Coin]:
+        """The coins lying in ``[start, end)``, nearest first."""
+        found = [coin for index in range(chunk_index(start), chunk_index(end) + 1)
+                 for coin in self.chunk(index).coins if start <= coin.distance < end]
+        return sorted(found, key=lambda coin: coin.distance)
+
+    # -- generation --
+    def _make(self, index: int) -> Chunk:
+        rng = np.random.default_rng([self.seed & 0xFFFFFFFF, index])
+        start = index * CHUNK_LENGTH
+        level = min(1.0, index / HARDEST_AT_CHUNK)
+        hedged = index >= 3 and rng.random() < DIVIDER_CHANCE
+        dividers: tuple[Divider, ...] = ()
+        if hedged:
+            lanes = [0, 1] if rng.random() < 0.4 else [int(rng.integers(0, 2))]
+            dividers = tuple(Divider(lane, start + DIVIDER_FROM, start + DIVIDER_TO)
+                             for lane in lanes)
+        obstacles = self._rows(rng, start, level, hedged)
+        coins = self._coins(rng, index, start, obstacles)
+        return Chunk(index, start, tuple(obstacles), tuple(coins), dividers)
+
+    def groups_at(self, distance: float, lanes: "list[int] | None" = None) -> list[list[int]]:
+        """The paths at ``distance`` split into those a hop connects: neighbours drawn closer
+        together than a hop reaches. Paths of a fork drawn away from the trail are a group of
+        their own."""
+        here = sorted(self.lanes_at(distance) if lanes is None else lanes)
+        groups: list[list[int]] = []
+        for lane in here:
+            if groups and lane - groups[-1][-1] == 1 and (
+                    self.lane_x(lane, distance) - self.lane_x(lane - 1, distance) <= HOP_REACH):
+                groups[-1].append(lane)
+            else:
+                groups.append([lane])
+        return groups
+
+    def _quiet(self, distance: float) -> bool:
+        """Whether nothing may stand here: the paths are parting or joining."""
+        return any(f.start <= distance < f.start + FORK_QUIET_AFTER_START
+                   or f.end - FORK_QUIET_BEFORE_END <= distance < f.end + FORK_QUIET_AFTER_END
+                   for f in self.forks_between(distance - FORK_QUIET_AFTER_END,
+                                               distance + FORK_QUIET_AFTER_START))
+
+    def _row_lanes(self, distance: float) -> list[int]:
+        """The paths things may stand on at ``distance``: the new paths of a fork only well
+        inside it."""
+        lanes = list(self.lanes_at(distance))
+        fork = self.fork_at(distance)
+        if fork is not None and not (fork.start + FORK_QUIET_AFTER_START <= distance
+                                     <= fork.end - FORK_QUIET_BEFORE_END):
+            lanes = [lane for lane in lanes if lane in TRUNK]
+        return lanes
+
+    def _rows(self, rng: np.random.Generator, start: float,
+              level: float, hedged: bool) -> list[Obstacle]:
+        obstacles: list[Obstacle] = []
+        for row in range(ROW_COUNT):
+            offset = row * ROW_SPACING
+            distance = start + offset + float(rng.integers(0, 3))
+            if distance < SAFE_START or self._quiet(distance):
+                continue
+            inside_hedge = hedged and DIVIDER_FROM <= offset <= DIVIDER_TO
+            available = self._row_lanes(distance)
+            weights = np.array([0.30 - 0.18 * level, 0.45, 0.20 + 0.10 * level,
+                                0.05 + 0.08 * level])
+            groups = self.groups_at(distance, available)
+            filled = min(int(rng.choice(4, p=weights / weights.sum())), len(available))
+            picked = sorted(available[int(i)] for i in rng.permutation(len(available))[:filled])
+            covered: set[int] = set()
+            walled: set[int] = set()
+            for lane in picked:
+                if lane in covered:
+                    continue
+                kind = self._kind(rng)
+                joined = (lane + 1 in available and lane + 1 not in picked
+                          and self.lane_x(lane + 1, distance) - self.lane_x(lane, distance)
+                          <= HOP_REACH)
+                span = 2 if joined and rng.random() < _SPAN_CHANCE[kind] else 1
+                lanes = set(range(lane, lane + span))
+                shut = any(set(group) <= (walled | lanes) for group in groups
+                           if set(group) & lanes)
+                if kind is Kind.WALL and (inside_hedge or shut):
+                    kind = Kind.LOW
+                if kind is Kind.WALL:
+                    walled |= lanes
+                covered |= lanes
+                obstacles.append(Obstacle(kind, lane, distance, span))
+        return obstacles
+
+    @staticmethod
+    def _kind(rng: np.random.Generator) -> Kind:
+        kinds = [kind for kind, _ in _KIND_WEIGHTS]
+        weights = [weight for _, weight in _KIND_WEIGHTS]
+        return kinds[int(rng.choice(len(kinds), p=weights))]
+
+    def _coins(self, rng: np.random.Generator, index: int, start: float,
+               obstacles: list[Obstacle]) -> list[Coin]:
+        coins: list[Coin] = []
+
+        def hidden(lane: int, distance: float) -> bool:
+            """Whether a coin here would stand between the runner and an obstacle."""
+            return any(lane in o.lanes
+                       and o.distance - o.depth / 2 - COIN_CLEAR_BEFORE <= distance
+                       <= o.distance + o.depth / 2 + COIN_CLEAR_AFTER for o in obstacles)
+
+        def place(lane: int, distance: float, height: float, value: int) -> None:
+            if (start <= distance < start + CHUNK_LENGTH and lane in self._row_lanes(distance)
+                    and not hidden(lane, distance) and not self._quiet(distance)):
+                coins.append(Coin((index, len(coins)), lane, distance, height, value))
+
+        def some_lane(distance: float) -> int:
+            lanes = self._row_lanes(distance)
+            return lanes[int(rng.integers(0, len(lanes)))]
+
+        for _ in range(int(rng.integers(2, 4))):
+            lane = some_lane(start + CHUNK_LENGTH / 2)
+            first = start + float(rng.integers(2, int(CHUNK_LENGTH) - 14))
+            for step in range(6):
+                place(lane, first + 2.0 * step, COIN_HEIGHT, 1)
+        for obstacle in obstacles:
+            if obstacle.kind is Kind.LOW and rng.random() < JEWEL_AFTER_LOG:
+                place(obstacle.lane, obstacle.distance + obstacle.depth / 2 + JEWEL_BEYOND,
+                      JEWEL_HEIGHT, 5)
+        if rng.random() < JEWEL_RUN_CHANCE:
+            first = start + float(rng.integers(4, int(CHUNK_LENGTH) - 10))
+            lane = some_lane(first)
+            for step in range(int(rng.integers(1, 4))):
+                place(lane, first + 2.5 * step, JEWEL_HEIGHT, 5)
+        return coins
