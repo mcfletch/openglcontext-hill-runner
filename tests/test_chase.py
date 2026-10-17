@@ -6,7 +6,10 @@ import pytest
 
 from openglcontext_hill_runner import chase
 from openglcontext_hill_runner import course as c
+from openglcontext_hill_runner import landscape as ls
 from openglcontext_hill_runner import runner as r
+from openglcontext_hill_runner import scenery as s
+from openglcontext_hill_runner import tunnel as tn
 
 
 @pytest.fixture
@@ -206,19 +209,24 @@ def test_the_camera_comes_back_in_line_as_it_rises_out_of_the_ceiling():
     assert follower.camera_offset()[0] + chase.CAMERA_BACK * math.sin(follower.heading()) == pytest.approx(0.0, abs=1e-6)
 
 
-@pytest.mark.parametrize('seed', [1, 2, 3])
-def test_the_camera_stays_above_the_floor_under_it_through_a_cave(seed):
-    world = c.Course(seed)
+@pytest.mark.parametrize('seed', [1, 2, 3, 4])
+def test_the_camera_stays_clear_of_the_floor_of_the_tunnel(seed):
+    land = ls.Landscape(c.Course(seed))
+    world = land.course
     cave = world.caves_between(0.0, 60000.0)[0]
-    body = r.Runner(world)
-    body.distance = cave.start - 40.0
-    body.speed = 24.0
-    follower = chase.Chase(body)
+    floor = tn.bore(land, cave, lambda: s._fixings(land, cave)).floor_points
     lowest = np.inf
-    while body.distance < cave.end + 40.0:
-        body.distance += 24.0 / 60
-        target = follower.advance(1 / 60)
-        eye_y = target[1] + follower.camera_offset()[1]
-        behind = body.distance + chase.LOOK_AHEAD - chase.CAMERA_BACK * math.cos(follower.heading())
-        lowest = min(lowest, eye_y - float(c.ground_height(behind)))
-    assert lowest >= chase.FLOOR_CLEARANCE - 1e-6
+    for lane in world.lanes_at(cave.start + 10.0):
+        body = r.Runner(world)
+        body.lane = lane
+        body.distance = cave.start - 40.0
+        body.speed = 24.0
+        follower = chase.Chase(body, land)
+        while body.distance < cave.end + 20.0:
+            body.distance += 24.0 / 60
+            target = follower.advance(1 / 60)
+            eye = np.array(target) + np.array(follower.camera_offset()) * (1.0 + chase.PULL_BACK_MAX)
+            if cave.start + 2.0 < -eye[2] < cave.end - 2.0:
+                near = np.hypot(floor[:, 0] - eye[0], floor[:, 2] - eye[2]).argmin()
+                lowest = min(lowest, eye[1] - floor[near, 1])
+    assert lowest >= 0.6

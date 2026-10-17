@@ -55,7 +55,7 @@ class Session:
         self.land = land
         self.course = land.course
         self.game = Game(self.course)
-        self.chase = Chase(self.game.runner)
+        self.chase = Chase(self.game.runner, land)
         self.footsteps = cues.Footsteps()
         self.pilot = Pilot(self.game) if demo else None
         self._crashed_for = 0.0

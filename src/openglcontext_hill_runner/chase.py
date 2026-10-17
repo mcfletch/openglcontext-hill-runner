@@ -4,6 +4,7 @@ import math
 import numpy as np
 
 from openglcontext_hill_runner import course as c
+from openglcontext_hill_runner.landscape import Landscape
 from openglcontext_hill_runner.runner import Runner
 
 #: Metres ahead of the runner that the camera looks, and above the ground.
@@ -27,9 +28,12 @@ CAMERA_UP = 2.5
 #: metres allows.
 CEILING_CLEARANCE = 0.75
 MIN_UP = 0.0
-#: The camera stands at least this far above the floor beneath it, which on a slope is higher
-#: than the floor at the point looked at, and wins over the ceiling where there is no room for both.
-FLOOR_CLEARANCE = 0.6
+#: The follow camera stands this much further off at full speed, as a fraction of its offset.
+PULL_BACK_MAX = 0.08
+#: The camera stands at least this far above the floor beneath it, which on a slope or toward the
+#: side of a tunnel is higher than the floor at the point looked at, and wins over the ceiling where
+#: there is no room for both.
+FLOOR_CLEARANCE = 1.0
 SMOOTH_TIME = 0.45
 LEAD_TIME = 0.9
 AHEAD_OF_CAMERA = 2.5
@@ -46,8 +50,10 @@ SIDE_SINKING = 0.8
 class Chase:
     """Works out where the camera looks, from the runner, each frame."""
 
-    def __init__(self, runner: Runner) -> None:
+    def __init__(self, runner: Runner, land: "Landscape | None" = None) -> None:
         self.runner = runner
+        #: Where the floor is under the camera; without it the path's ground height is used.
+        self.land = land
         self._x = runner.x
         self._distance = runner.distance
         self._up = CAMERA_UP
@@ -68,8 +74,7 @@ class Chase:
         ahead = runner.distance + LOOK_AHEAD
         along = course.lane_x(runner.lane, ahead) - course.lane_x(runner.lane, runner.distance)
         height = float(c.ground_height(ahead)) + HEIGHT + JUMP_LIFT * runner.height
-        under = runner.distance + LOOK_AHEAD - CAMERA_BACK * math.cos(self.heading())
-        floor = float(c.ground_height(under)) + FLOOR_CLEARANCE - height
+        floor = self._floor_under_camera() + FLOOR_CLEARANCE - height
         self._glide(self._room(height, max(AHEAD_OF_CAMERA, runner.speed * LEAD_TIME)),
                     self._room(height, AHEAD_OF_CAMERA), floor, dt)
         return (float(self._x + along) - LOOK_ASIDE * self.sunk(), height, -ahead)
@@ -88,6 +93,21 @@ class Chase:
             self._up, self._rising = limit, min(self._rising, 0.0)
         if self._up < floor:
             self._up, self._rising = floor, max(self._rising, 0.0)
+
+    def _floor_under_camera(self) -> float:
+        """The highest the floor is anywhere the camera may be, from the path's own line to
+        SIDE_STEP to the right of it and from CAMERA_BACK to as far back as it pulls at full
+        speed. The follow camera scales its whole offset by the pull-back."""
+        runner = self.runner
+        turn = self.heading()
+        back = CAMERA_BACK * np.array([1.0, 1.0 + 0.5 * PULL_BACK_MAX, 1.0 + PULL_BACK_MAX])
+        d = runner.distance + LOOK_AHEAD - back * math.cos(turn)
+        if self.land is None:
+            return float(np.max(c.ground_height(d)))
+        path = np.array([runner.course.lane_x(runner.lane, float(at)) for at in d])
+        side = SIDE_STEP * (1.0 + PULL_BACK_MAX) * np.array([0.0, 0.5, 1.0])
+        x = (path[:, None] + side[None, :]).ravel()
+        return float(np.max(self.land.footing(x, np.repeat(d, len(side)))))
 
     def _room(self, looking_at: float, reach: float) -> float:
         """How far above ``looking_at`` the camera may stand: as high as it likes in the open,

@@ -32,7 +32,7 @@ from OpenGLContext.ui import dialogs, settings
 
 from openglcontext_hill_runner import atmosphere, canopy, credits, menu, woods
 from openglcontext_hill_runner import course as c
-from openglcontext_hill_runner.chase import CAMERA_BACK, CAMERA_UP
+from openglcontext_hill_runner.chase import CAMERA_BACK, CAMERA_UP, PULL_BACK_MAX
 from openglcontext_hill_runner.groundcover import Cover
 from openglcontext_hill_runner.hud import RunHud
 from openglcontext_hill_runner.landscape import Landscape
@@ -50,7 +50,7 @@ REACH = 260.0
 HAZE_RANGE = REACH
 FOV = math.radians(62.0)
 #: How much further the camera backs off at full speed, as a fraction of its distance.
-CAMERA_PULL_BACK = 0.08
+CAMERA_PULL_BACK = PULL_BACK_MAX
 #: The sun's direction: from behind the runner and a little to the left, so shadows fall ahead
 #: along the trails, and a coin's shadow lies on its own trail.
 SUN = canopy.SUN
