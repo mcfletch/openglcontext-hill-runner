@@ -66,9 +66,11 @@ class RunnerContext(Context):
     #: No free-fly: the chase camera is all that moves the view.
     #: The title names the window and the pictures F2 saves (``Hill-Runner-0001.png``).
     #: Shadows are asked for outright, with a fixed three cascades so the runner's and the
-    #: logs' shadows keep their detail whatever the frame rate.
+    #: logs' shadows keep their detail whatever the frame rate. Frames wait for the display's
+    #: refresh, which leaves the threads that scatter the cover and make the tiles their share
+    #: of the interpreter between frames.
     contextDefinition = ContextDefinition(navigation=None, title='Hill Runner', shadows=True,
-                                          shadowCascades=3)
+                                          shadowCascades=3, vsync=True)
 
     #: Set by ``run.main`` from the command line.
     seed = 1

@@ -2,7 +2,7 @@
 the plants that grow with it kept back from them."""
 import numpy as np
 import pytest
-from OpenGLContext.scenegraph.vegetation.cover import CoverSpecies
+from OpenGLContext.scenegraph.vegetation.cover import CARD_SUN, CoverSpecies
 
 from openglcontext_hill_runner import course as c
 from openglcontext_hill_runner import groundcover as g
@@ -37,6 +37,12 @@ def test_the_grass_stands_taller_than_it_was_drawn_and_the_rest_is_left_as_it_wa
     assert grasses[0].height == pytest.approx(0.15 * g.TALL)
     assert plants[0].height == pytest.approx(0.4)
     assert grasses[0].name == 'grass_a' and grasses[0].density == 2.0
+
+
+def test_every_card_is_lit_as_much_as_the_geometry_it_stands_in_for_whatever_the_pack_records():
+    dim = [species('grass_a').varied(sunLevel=0.42), species('fern').varied(sunLevel=0.42)]
+    grasses, plants = g.split(dim)
+    assert [s.sunLevel for s in (*grasses, *plants)] == [CARD_SUN, CARD_SUN]
 
 
 def test_meadow_is_mostly_grass_and_forest_has_more_of_the_plants_among_the_trees(land):
@@ -99,5 +105,18 @@ def test_the_cover_can_be_waited_for(land):
     try:
         cover.update((0.0, 2.0, -50.0))
         assert cover.wait(60.0)
+    finally:
+        cover.shutdown()
+
+
+def test_the_cover_reaches_as_far_as_its_cards_and_has_no_sparse_field_beyond():
+    art = w.forest_art()
+    if art is None:
+        pytest.skip("the forest demo's art is not installed")
+    cover = g.Cover(art, ls.Landscape(c.Course(1)))
+    try:
+        for node in cover.nodes:
+            assert (node.clump_radius, node.card_radius) == (g.CLUMP_REACH, g.CARD_REACH)
+            assert not node.has_far
     finally:
         cover.shutdown()

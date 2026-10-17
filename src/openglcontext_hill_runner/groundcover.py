@@ -8,13 +8,23 @@ so that near the trail it reads as grass seen from a runner's height and not as 
 from typing import Any
 
 import numpy as np
-from OpenGLContext.scenegraph.vegetation.cover import CoverSpecies, GroundCover, read_cover_manifest
+from OpenGLContext.scenegraph.vegetation.cover import (
+    CARD_SUN,
+    CoverSpecies,
+    GroundCover,
+    read_cover_manifest,
+)
 
 from openglcontext_hill_runner.landscape import Landscape
 from openglcontext_hill_runner.scenery import HillField
 
 #: How many times taller the grass grows than the forest demo's art draws it.
 TALL = 2.2
+#: How far the cover reaches, in metres: the geometry, the cards that replace it, and no coarse
+#: field beyond those. The haze hides everything past ``app.HAZE_RANGE``, and the sparse far field
+#: reads on the horizon as dark rocks that vanish as they are neared.
+CLUMP_REACH = 34.0
+CARD_REACH = 130.0
 #: Metres from the middle of a trail inside which the grass does not grow, and the width of the
 #: band over which it thickens to full; the same for the other plants. A trail is 0.5 m wide.
 GRASS_CLEAR = (0.32, 0.25)
@@ -22,9 +32,15 @@ PLANTS_CLEAR = (0.55, 0.4)
 
 
 def split(species: list[CoverSpecies]) -> tuple[list[CoverSpecies], list[CoverSpecies]]:
-    """``species`` as the grasses, grown :data:`TALL`, and the plants that are not grass."""
-    grasses = [s.varied(height=s.height * TALL) for s in species if s.name.startswith('grass')]
-    return grasses, [s for s in species if not s.name.startswith('grass')]
+    """``species`` as the grasses, grown :data:`TALL`, and the plants that are not grass.
+
+    Every card is lit as much as the lit geometry it stands in for (``CARD_SUN``), whatever light
+    the pack records, so the ground does not change brightness where the cards give way to
+    the geometry.
+    """
+    lit = [s.varied(sunLevel=CARD_SUN) for s in species]
+    grasses = [s.varied(height=s.height * TALL) for s in lit if s.name.startswith('grass')]
+    return grasses, [s for s in lit if not s.name.startswith('grass')]
 
 
 def _weight(land: Landscape, density: Any, clear: tuple[float, float]) -> Any:
@@ -59,10 +75,12 @@ class Cover:
     def __init__(self, art: str, land: Landscape) -> None:
         grasses, plants = split(read_cover_manifest(art))
         ground = HillField(land)
-        self.grass = GroundCover(ground, grasses, mask=grass_where(land), shade=_in_the_sun,
+        self.grass = GroundCover(ground, grasses, clump_radius=CLUMP_REACH, card_radius=CARD_REACH,
+                                 far_radius=CARD_REACH, mask=grass_where(land), shade=_in_the_sun,
                                  background=True)
-        self.plants = GroundCover(ground, plants, mask=plants_where(land), shade=_in_the_sun,
-                                  background=True)
+        self.plants = GroundCover(ground, plants, clump_radius=CLUMP_REACH, card_radius=CARD_REACH,
+                                  far_radius=CARD_REACH, mask=plants_where(land),
+                                  shade=_in_the_sun, background=True)
 
     @property
     def nodes(self) -> list[GroundCover]:

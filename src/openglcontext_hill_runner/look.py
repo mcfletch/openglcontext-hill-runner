@@ -1,4 +1,4 @@
-"""The materials of the hill: grass, dirt, wood, stone, brick and leaves.
+"""Materials for the terrain and scenery: grass, forest floor, sand, dirt, stone, bark, wood and leaves.
 
 Made once, from the engine's procedural surfaces, and shared by every tile, so
 each texture is uploaded to the GPU once however many tiles wear it.
