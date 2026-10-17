@@ -130,6 +130,11 @@ def test_the_game_over_screen_reports_the_run_and_offers_a_retry_or_quit():
     assert calls == ['retry']
 
 
+def test_the_game_over_screen_says_there_were_no_coins_for_a_continue():
+    panel = menu.game_over_panel(g.Game(c.Course(1)), on_retry=lambda: None, on_quit=lambda: None)
+    assert panel.title == 'No coins for continue, game over'
+
+
 def test_the_game_over_screen_cannot_be_dismissed_without_choosing():
     panel = menu.game_over_panel(g.Game(c.Course(1)), on_retry=lambda: None, on_quit=lambda: None)
     assert not panel.closeOnEscape

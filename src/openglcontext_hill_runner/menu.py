@@ -77,8 +77,9 @@ def pause_panel(on_resume: Action, on_restart: Action, on_settings: Action,
 
 
 def game_over_panel(game: Game, on_retry: Action, on_quit: Action) -> Panel:
-    """The end of a run: how far, and what was collected."""
-    panel = Panel(title=_('Run over'), modal=True, scrim=True, closeOnEscape=False,
+    """The end of a run, which only a hit that the coins could not pay for ends: how far, and
+    what was collected."""
+    panel = Panel(title=_('No coins for continue, game over'), modal=True, scrim=True, closeOnEscape=False,
                   preferredColumns=30)
     chosen: list[str] = []
     panel.children = [Column(spacing=6, children=[
