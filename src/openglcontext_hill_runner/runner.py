@@ -43,6 +43,8 @@ class Runner:
         self._slide_left = 0.0
         self._slide_on_landing = False
         self._events: list[Event] = []
+        #: Whether the body is knocked down: it does as it is told by nothing.
+        self.stunned = False
 
     # -- state --
     @property
@@ -80,6 +82,8 @@ class Runner:
     def hop(self, direction: int) -> bool:
         """Move one path left (-1) or right (+1); False if there is none, or a hedge is between
         them, or they are drawn too far apart."""
+        if self.stunned:
+            return False
         target = self.lane + direction
         if target not in self.course.lanes_at(self.distance):
             return False
@@ -91,9 +95,22 @@ class Runner:
         self._events.append(Event.HOP)
         return True
 
-    def stumble(self) -> None:
-        """Lose all the speed gained: the run starts over at :data:`START_SPEED`."""
+    def knock_down(self) -> None:
+        """Stop dead on the ground, whatever the body was doing, and stay down until
+        :meth:`get_up`."""
+        self.speed = 0.0
+        self.height = 0.0
+        self._rise = 0.0
+        self._slide_left = 0.0
+        self._slide_on_landing = False
+        self.offset = 0.0
+        self._events.clear()
+        self.stunned = True
+
+    def get_up(self) -> None:
+        """Stand and run again from :data:`START_SPEED`: the speed gained is lost."""
         self.speed = START_SPEED
+        self.stunned = False
 
     def _move_to(self, lane: int) -> None:
         """Change path without moving the body; the offset is what is left to glide."""
@@ -103,7 +120,7 @@ class Runner:
 
     def jump(self) -> bool:
         """Leave the ground; False in the air."""
-        if not self.grounded:
+        if self.stunned or not self.grounded:
             return False
         self._rise = JUMP_SPEED
         self._slide_left = 0.0
@@ -114,8 +131,11 @@ class Runner:
     def slide(self) -> bool:
         """Drop low for a moment, or stay low for another moment if already sliding.
 
-        In the air the runner falls at once and slides on landing.
+        In the air the runner falls at once and slides on landing. A runner who is knocked down
+        does nothing.
         """
+        if self.stunned:
+            return False
         if self.sliding:
             self._slide_left = SLIDE_TIME
         elif self.grounded:

@@ -5,6 +5,7 @@ nodes because the countries want them in different proportions: a meadow is gras
 ferns, a forest the other way about. The grass is grown taller than the forest demo draws it,
 so that near the trail it reads as grass seen from a runner's height and not as a lawn.
 """
+import math
 from typing import Any
 
 import numpy as np
@@ -25,6 +26,15 @@ TALL = 2.2
 #: reads on the horizon as dark rocks that vanish as they are neared.
 CLUMP_REACH = 34.0
 CARD_REACH = 130.0
+#: Where each rung of the cover dissolves into the next begins, as a fraction of its outer edge. At
+#: 24 m/s the default window of a fifth of the radius is crossed in a third of a second and
+#: reads as a pop.
+FADE = 0.5
+#: How far down the trail ahead the cover is scattered before the runner gets there, in metres,
+#: the spacing of the places it is scattered about, and how far the runner goes between times.
+PREPARE_AHEAD = 210.0
+PREPARE_STEP = 30.0
+PREPARE_EVERY = 20.0
 #: Metres from the middle of a trail inside which the grass does not grow, and the width of the
 #: band over which it thickens to full; the same for the other plants. A trail is 0.5 m wide.
 GRASS_CLEAR = (0.32, 0.25)
@@ -73,13 +83,15 @@ class Cover:
     """The grass and the other plants of one hill, scattered about the camera on a worker."""
 
     def __init__(self, art: str, land: Landscape) -> None:
+        self.land = land
+        self._prepared_at = -math.inf
         grasses, plants = split(read_cover_manifest(art))
         ground = HillField(land)
         self.grass = GroundCover(ground, grasses, clump_radius=CLUMP_REACH, card_radius=CARD_REACH,
-                                 far_radius=CARD_REACH, mask=grass_where(land), shade=_in_the_sun,
-                                 background=True)
+                                 far_radius=CARD_REACH, fade=FADE, mask=grass_where(land),
+                                 shade=_in_the_sun, background=True)
         self.plants = GroundCover(ground, plants, clump_radius=CLUMP_REACH, card_radius=CARD_REACH,
-                                  far_radius=CARD_REACH, mask=plants_where(land),
+                                  far_radius=CARD_REACH, fade=FADE, mask=plants_where(land),
                                   shade=_in_the_sun, background=True)
 
     @property
@@ -89,6 +101,8 @@ class Cover:
 
     def relocate(self, land: Landscape) -> None:
         """Grow the same cover on another hill, keeping what the nodes hold on the GPU."""
+        self.land = land
+        self._prepared_at = -math.inf
         ground = HillField(land)
         self.grass.relocate(ground, mask=grass_where(land), shade=_in_the_sun)
         self.plants.relocate(ground, mask=plants_where(land), shade=_in_the_sun)
@@ -102,9 +116,17 @@ class Cover:
             node.update(eye)
 
     def update(self, eye: Any) -> None:
-        """Keep the cover about the camera at ``eye``; call once a frame."""
+        """Keep the cover about the camera at ``eye``, and scatter the trail ahead of it as it
+        runs; call once a frame."""
         for node in self.nodes:
             node.update(eye)
+        run = -float(eye[2])
+        if not 0.0 <= run - self._prepared_at < PREPARE_EVERY:
+            self._prepared_at = run
+            ahead = [run + step for step in np.arange(PREPARE_STEP, PREPARE_AHEAD + 1.0, PREPARE_STEP)]
+            places = [(float(self.land.course.centre(d)), -d) for d in ahead]
+            for node in self.nodes:
+                node.prepare(places)
 
     def wait(self, timeout: float | None = None) -> bool:
         """Wait for the workers to finish a scatter; whether both did in time."""

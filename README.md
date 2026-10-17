@@ -29,7 +29,7 @@ score, hits and metres run.
 
 ### Damage
 
-A hit costs all the speed gained: the runner is back at 10 m/s. Three hits end the run. The edges of the
+A hit knocks the runner down just short of the obstacle. It stays there for 1.3 s, rolling to its feet, with the keys doing nothing, and then runs on from 10 m/s: the speed gained is lost. Three hits end the run. The edges of the
 screen are shaded red in proportion to the hits taken (a third, two thirds, all of the shading) and
 flash at each new hit. Nothing hits the runner again for the next 15 m, so a row of obstacles is one hit.
 500 m run without a hit takes one hit away, and another 500 m after that takes the next.

@@ -202,10 +202,12 @@ def run_to(game, distance):
                 or game.state is g.State.CRASHED)
 
 
-def test_a_hit_takes_the_runners_speed_back_to_where_it_started():
+def test_a_hit_takes_the_runners_speed_back_to_where_it_started_once_it_is_up_again():
     game = g.Game(Empty(walls(30.0)))
     game.runner.speed = 20.0
     play(game, lambda game: game.damage == 1)
+    assert game.runner.speed == 0.0
+    play(game, lambda game: game.state is g.State.RUNNING)
     assert game.runner.speed == pytest.approx(START_SPEED, abs=0.01)
 
 
@@ -215,6 +217,78 @@ def test_the_runner_speeds_up_again_after_a_hit():
     play(game, lambda game: game.damage == 1)
     run_to(game, 200.0)
     assert START_SPEED < game.runner.speed < 20.0
+
+
+# -- the fall -------------------------------------------------------------------------
+
+def hit(game=None):
+    game = game or g.Game(Empty(walls(30.0)))
+    heard = play(game, lambda game: game.damage == 1)
+    return game, heard
+
+
+def test_a_hit_knocks_the_runner_down_and_it_stays_where_it_fell_while_it_gets_up():
+    game, _ = hit()
+    assert game.state is g.State.DOWN
+    fell_at = game.runner.distance
+    for _ in range(int(g.STUMBLE_TIME * 60) - 5):
+        game.advance(FRAME)
+    assert game.state is g.State.DOWN and game.runner.distance == fell_at
+
+
+def test_the_runner_is_back_on_its_feet_after_the_stumble_and_runs_on():
+    game, _ = hit()
+    fell_at = game.runner.distance
+    heard = play(game, lambda game: game.state is g.State.RUNNING)
+    assert Event.RISE in heard
+    run_to(game, fell_at + 5.0)
+    assert game.state is g.State.RUNNING and game.runner.distance > fell_at + 4.0
+
+
+def test_the_stumble_takes_as_long_as_it_says():
+    game, _ = hit()
+    frames = 0
+    while game.state is g.State.DOWN:
+        game.advance(FRAME)
+        frames += 1
+    assert frames * FRAME == pytest.approx(g.STUMBLE_TIME, abs=2 * FRAME)
+
+
+def test_the_runner_is_knocked_back_to_before_the_obstacle_it_hit():
+    obstacle = c.Obstacle(c.Kind.WALL, 1, 30.0)
+    game, _ = hit(g.Game(Empty([obstacle])))
+    assert game.runner.distance <= obstacle.distance - obstacle.depth / 2 - g.BODY_HALF_DEPTH
+
+
+def test_nothing_the_runner_asks_for_is_done_while_it_is_down():
+    game, _ = hit()
+    for command in (lambda: game.runner.jump(), lambda: game.runner.slide(),
+                    lambda: game.runner.hop(+1), lambda: game.runner.hop(-1)):
+        assert command() is False
+    assert game.runner.grounded and not game.runner.sliding and game.runner.drain_events() == []
+
+
+def test_the_runner_can_act_again_once_it_is_up():
+    game, _ = hit()
+    play(game, lambda game: game.state is g.State.RUNNING)
+    assert game.runner.jump() is True
+
+
+def test_a_coin_is_not_taken_by_a_runner_who_is_down():
+    coin = c.Coin((0, 0), 1, 30.0, 0.5, 1)
+    game = g.Game(Empty(walls(30.0), [coin]))
+    play(game, lambda game: game.damage == 1)
+    for _ in range(int(g.STUMBLE_TIME * 60) - 10):
+        game.advance(FRAME)
+    assert game.state is g.State.DOWN and game.coins == 0
+
+
+def test_the_hit_that_ends_the_run_is_a_fall_with_no_getting_up():
+    game = g.Game(Empty(walls(30.0, 70.0, 110.0)))
+    run_to(game, 300.0)
+    assert game.state is g.State.CRASHED
+    game.advance(g.STUMBLE_TIME * 2)
+    assert game.state is g.State.CRASHED
 
 
 def test_one_obstacle_is_one_hit_however_long_the_runner_is_in_it():

@@ -24,12 +24,18 @@ MAX_DAMAGE = 3
 HEAL_DISTANCE = 500.0
 #: Metres after a hit in which nothing hits the runner again, so one row of obstacles is one hit.
 RECOVERY_DISTANCE = 15.0
+#: Seconds the runner is down after a hit before it runs on: the length of its roll to its feet.
+STUMBLE_TIME = 1.3
+#: How far short of the obstacle it hit the runner is left standing, in metres.
+KNOCKED_BACK = 0.1
 
 
 class State(enum.Enum):
     """Whether the run is going or has ended."""
 
     RUNNING = 'running'
+    #: Hit, and getting up: nothing moves, and nothing can hit the runner again.
+    DOWN = 'down'
     #: The last of the damage was taken.
     CRASHED = 'crashed'
 
@@ -52,6 +58,7 @@ class Game:
         #: The obstacle of the latest hit.
         self.crashed_into: c.Obstacle | None = None
         self._last_hit = 0.0
+        self._down_for = 0.0
         self._taken: set[tuple[int, int]] = set()
 
     @property
@@ -71,6 +78,13 @@ class Game:
     def advance(self, dt: float) -> list[Event]:
         """Run for ``dt`` seconds; returns what happened, in order."""
         heard: list[Event] = []
+        if self.state is State.DOWN:
+            self._down_for -= dt
+            if self._down_for <= 0.0:
+                self.state = State.RUNNING
+                self.runner.get_up()
+                heard.append(Event.RISE)
+            return heard
         if self.state is not State.RUNNING:
             return heard
         steps = max(1, math.ceil(dt / MAX_STEP))
@@ -80,17 +94,30 @@ class Game:
             heard += self._collect()
             if self._hit():
                 self.damage += 1
-                self.runner.stumble()
+                self._knock_back()
+                self.runner.knock_down()
                 if self.damage >= MAX_DAMAGE:
                     self.state = State.CRASHED
                     heard.append(Event.CRASH)
-                    break
-                heard.append(Event.HIT)
+                else:
+                    self.state = State.DOWN
+                    self._down_for = STUMBLE_TIME
+                    heard.append(Event.HIT)
+                break
             elif self._healed():
                 heard.append(Event.HEAL)
         return heard
 
     # -- rules --
+    def _knock_back(self) -> None:
+        """Leave the runner standing just short of the obstacle it hit; the recovery and the
+        run that heals are counted from there."""
+        hit = self.crashed_into
+        assert hit is not None
+        short = hit.distance - hit.depth / 2.0 - BODY_HALF_DEPTH - KNOCKED_BACK
+        self.runner.distance = min(self.runner.distance, short)
+        self._last_hit = self.runner.distance
+
     def _healed(self) -> bool:
         """Take one damage away if :data:`HEAL_DISTANCE` has been run since the last hit or heal."""
         if self.damage == 0 or self.runner.distance < self._last_hit + HEAL_DISTANCE:

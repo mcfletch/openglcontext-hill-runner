@@ -20,7 +20,9 @@ SPRINT_QUICKENING = 0.05
 #: seconds as authored, and the airborne half of a jump about 0.3.
 TAKEOFF_SPEED = 2.4
 
-CLIPS = ('Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Start', 'Jump_Loop', 'Slide', 'Death01')
+CLIPS = ('Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Start', 'Jump_Loop', 'Slide', 'Death01', 'Roll')
+#: Seconds the roll to the feet lasts at speed 1.0.
+ROLL_LENGTH = 1.47
 
 MUSIC = 'music'
 STEP = 'footstep'
@@ -41,6 +43,9 @@ def pose_for(game: g.Game) -> Pose:
     runner = game.runner
     if game.state is g.State.CRASHED:
         return Pose('Death01', False, 0.08, 1.6)
+    if game.state is g.State.DOWN:
+        # Knocked over and rolling up, in the time the runner is down for.
+        return Pose('Roll', False, 0.05, ROLL_LENGTH / g.STUMBLE_TIME)
     if runner.sliding:
         return Pose('Slide', False, 0.08)
     if not runner.grounded:

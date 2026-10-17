@@ -15,6 +15,8 @@ class Event(enum.Enum):
     JEWEL = 'jewel'
     #: The runner hit an obstacle and has damage left to take.
     HIT = 'hit'
+    #: The runner is back on its feet after a hit and runs on.
+    RISE = 'rise'
     #: Metres run without a hit took one damage away.
     HEAL = 'heal'
     #: The hit that ended the run.

@@ -163,3 +163,34 @@ def test_a_run_the_pilot_took_over_part_way_goes_on_without_a_crash():
     while session.game.runner.distance < 3000.0 and session.game.state.name == 'RUNNING':
         session.step(1 / 60)
     assert session.game.state.name == 'RUNNING'
+
+
+def test_the_pilot_does_nothing_while_the_runner_is_down():
+    world = c.Course(1)
+    session = Session(world, demo=True)
+    session.game.state = g.State.DOWN
+    session.game._down_for = 5.0                     # noqa: SLF001 holding the runner down for the test
+    session.game.runner.stunned = True
+    wall = c.Obstacle(c.Kind.WALL, 1, 12.0)
+    world.chunk(0)
+    world._chunks[0] = c.Chunk(0, 0.0, (wall,), (), ())  # noqa: SLF001 a course with the one obstacle
+    for _ in range(30):
+        session.step(FRAME)
+    assert session.game.runner.grounded and session.game.runner.lane == 1
+    assert session.game.runner.drain_events() == []
+
+
+def test_a_hit_runner_stays_where_it_fell_in_the_picture_until_it_is_up():
+    world = c.Course(1)
+    session = Session(world)
+    wall = c.Obstacle(c.Kind.WALL, 1, 12.0)
+    world.chunk(0)
+    world._chunks[0] = c.Chunk(0, 0.0, (wall,), (), ())  # noqa: SLF001 a course with the one obstacle
+    while session.game.state is not g.State.DOWN:
+        session.step(FRAME)
+    where = session.step(FRAME).position
+    for _ in range(int(g.STUMBLE_TIME * 60) - 6):
+        assert session.step(FRAME).position == where
+    while session.game.state is g.State.DOWN:
+        session.step(FRAME)
+    assert session.step(1 / 30).position != where

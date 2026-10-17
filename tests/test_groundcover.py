@@ -120,3 +120,27 @@ def test_the_cover_reaches_as_far_as_its_cards_and_has_no_sparse_field_beyond():
             assert not node.has_far
     finally:
         cover.shutdown()
+
+
+def test_the_cover_scatters_the_trail_ahead_as_the_runner_gets_on_and_dissolves_early():
+    art = w.forest_art()
+    if art is None:
+        pytest.skip("the forest demo's art is not installed")
+    land = ls.Landscape(c.Course(1))
+    cover = g.Cover(art, land)
+    asked = []
+    try:
+        for node in cover.nodes:
+            assert node.fade == g.FADE
+            node.prepare = lambda places, asked=asked: asked.append(places)
+        cover.update(np.array([0.0, 0.0, -100.0]))
+        assert len(asked) == len(cover.nodes)
+        places = asked[0]
+        assert [round(-z) for _x, z in places] == [130 + 30 * k for k in range(7)]
+        assert places[0][0] == pytest.approx(float(land.course.centre(130.0)))
+        cover.update(np.array([0.0, 0.0, -105.0]))
+        assert len(asked) == len(cover.nodes)           # not again for a few metres
+        cover.update(np.array([0.0, 0.0, -125.0]))
+        assert len(asked) == 2 * len(cover.nodes)
+    finally:
+        cover.shutdown()

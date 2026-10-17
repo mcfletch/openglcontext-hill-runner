@@ -82,7 +82,7 @@ class Session:
         """Run for ``dt`` seconds, at most :data:`MAX_FRAME`."""
         dt = min(dt, MAX_FRAME)
         game = self.game
-        if self.pilot is not None:
+        if self.pilot is not None and game.state is State.RUNNING:
             self.pilot.drive()
         events = game.advance(dt)
         # The runner's own commands (a jump asked for between frames) are heard

@@ -121,3 +121,19 @@ def test_no_steps_are_taken_in_the_air_or_sliding_or_after_a_crash(game):
     game.restart()
     game.state = g.State.CRASHED
     assert not any(steps.advance(1 / 60, game) for _ in range(60))
+
+
+def test_a_runner_who_is_down_rolls_to_its_feet_over_as_long_as_it_is_down(game):
+    game.state = g.State.DOWN
+    pose = cues.pose_for(game)
+    assert (pose.clip, pose.loop) == ('Roll', False)
+    from OpenGLContext.character import CharacterModel
+    import importlib.resources as resources
+    path = resources.files('openglcontext_hill_runner') / 'assets' / 'runner.glb'
+    length = CharacterModel.load(str(path)).clips['Roll'].duration
+    assert length / pose.speed == pytest.approx(g.STUMBLE_TIME, abs=0.05)
+
+
+def test_no_steps_are_taken_while_down(game):
+    game.state = g.State.DOWN
+    assert not cues.Footsteps().advance(1.0, game)
