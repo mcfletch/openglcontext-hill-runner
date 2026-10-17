@@ -29,7 +29,7 @@ from OpenGLContext.scenegraph.basenodes import (
 from OpenGLContext.scenegraph.generatedtiles import GeneratedTiles
 from OpenGLContext.ui import dialogs, settings
 
-from openglcontext_hill_runner import atmosphere, credits, menu, woods
+from openglcontext_hill_runner import atmosphere, canopy, credits, menu, woods
 from openglcontext_hill_runner import course as c
 from openglcontext_hill_runner.chase import CAMERA_BACK, CAMERA_UP
 from openglcontext_hill_runner.groundcover import Cover
@@ -52,7 +52,7 @@ FOV = math.radians(62.0)
 CAMERA_PULL_BACK = 0.08
 #: The sun's direction: from behind the runner and a little to the left, so shadows fall ahead
 #: along the trails, and a coin's shadow lies on its own trail.
-SUN = (-0.18, -0.75, -0.62)
+SUN = canopy.SUN
 #: The game's keys, each with the method of the window that answers it.
 CONTROLS = {'<left>': '_hop_left', '<right>': '_hop_right', '<up>': '_jump',
             '<down>': '_slide', '<escape>': '_pause'}

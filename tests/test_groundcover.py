@@ -144,3 +144,18 @@ def test_the_cover_scatters_the_trail_ahead_as_the_runner_gets_on_and_dissolves_
         assert len(asked) == 2 * len(cover.nodes)
     finally:
         cover.shutdown()
+
+
+def test_the_cover_is_lit_by_the_shade_of_the_trees_and_a_new_hill_has_its_own():
+    art = w.forest_art()
+    if art is None:
+        pytest.skip("the forest demo's art is not installed")
+    land = ls.Landscape(c.Course(1))
+    cover = g.Cover(art, land)
+    try:
+        first = cover.canopy
+        assert cover.grass.shade is first and cover.plants.shade is first
+        cover.relocate(ls.Landscape(c.Course(2)))
+        assert cover.canopy is not first and cover.grass.shade is cover.canopy
+    finally:
+        cover.shutdown()

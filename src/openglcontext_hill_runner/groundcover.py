@@ -16,6 +16,7 @@ from OpenGLContext.scenegraph.vegetation.cover import (
     read_cover_manifest,
 )
 
+from openglcontext_hill_runner.canopy import Canopy
 from openglcontext_hill_runner.landscape import Landscape
 from openglcontext_hill_runner.scenery import HillField
 
@@ -74,25 +75,22 @@ def plants_where(land: Landscape) -> Any:
     return _weight(land, land.cover_density, PLANTS_CLEAR)
 
 
-def _in_the_sun(x: Any, z: Any) -> Any:  # noqa: ARG001 the engine asks for a value at (x, z)
-    """How much sun reaches the cover: all of it, for each point."""
-    return np.ones_like(np.asarray(x, dtype=float))
-
-
 class Cover:
     """The grass and the other plants of one hill, scattered about the camera on a worker."""
 
     def __init__(self, art: str, land: Landscape) -> None:
         self.land = land
+        #: How much of the sun reaches the ground between the trees: what each plant is lit by.
+        self.canopy = Canopy(land)
         self._prepared_at = -math.inf
         grasses, plants = split(read_cover_manifest(art))
         ground = HillField(land)
         self.grass = GroundCover(ground, grasses, clump_radius=CLUMP_REACH, card_radius=CARD_REACH,
                                  far_radius=CARD_REACH, fade=FADE, mask=grass_where(land),
-                                 shade=_in_the_sun, background=True)
+                                 shade=self.canopy, background=True)
         self.plants = GroundCover(ground, plants, clump_radius=CLUMP_REACH, card_radius=CARD_REACH,
                                   far_radius=CARD_REACH, fade=FADE, mask=plants_where(land),
-                                  shade=_in_the_sun, background=True)
+                                  shade=self.canopy, background=True)
 
     @property
     def nodes(self) -> list[GroundCover]:
@@ -102,10 +100,11 @@ class Cover:
     def relocate(self, land: Landscape) -> None:
         """Grow the same cover on another hill, keeping what the nodes hold on the GPU."""
         self.land = land
+        self.canopy = Canopy(land)
         self._prepared_at = -math.inf
         ground = HillField(land)
-        self.grass.relocate(ground, mask=grass_where(land), shade=_in_the_sun)
-        self.plants.relocate(ground, mask=plants_where(land), shade=_in_the_sun)
+        self.grass.relocate(ground, mask=grass_where(land), shade=self.canopy)
+        self.plants.relocate(ground, mask=plants_where(land), shade=self.canopy)
 
     def fill(self, eye: Any) -> None:
         """Scatter the cover about ``eye`` now, so the first frame has it."""
