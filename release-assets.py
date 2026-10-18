@@ -12,9 +12,11 @@ of the code, so they are a base pack attached to a GitHub release and fetched th
 
 ``--install`` makes a content release testable before it is a release: the game then finds the art in
 its own store, as an installed copy would. Nothing here reaches GitHub; ``tools/publish-content.py``
-in the workspace attaches the archive to its release from the registry this writes. A change to the
-art goes under a new release tag (``--tag content-v2``), since a published file is not replaced:
-the registry of every earlier release of the code names the file it was made with.
+in the workspace attaches the archive to its release from the registry this writes. The archive is
+released under its own annotated git tag, ``content-hill-runner-assets-v<N>``, made when the registry
+is written and on the commit the archive was built from. A change to the art takes the next number,
+since a published file is not replaced: the registry of every earlier release of the code names the
+file it was made with.
 
 The registry is written from the archive this built, so its digest and size cannot describe a file
 that was never made. The pack holds the art and ``CREDITS.txt``, the terms the art is under, cut from
@@ -71,7 +73,7 @@ RELEASE = publish.Release(
     namespace="openglcontext-hill-runner",
     url="https://github.com/mcfletch/openglcontext-hill-runner/releases/download/%s/%s",
     catalog=CATALOG, declare=declare,
-    into=os.path.join(HERE, "dist", "content"), tag="content-v1",
+    into=os.path.join(HERE, "dist", "content"),
     description=__doc__.split("\n\n")[0], title="Hill runner art and sound",
     notes="The art `openglcontext-hill-runner` fetches on its first run. Terms are in the registry "
           "and in CREDITS.txt inside the pack.")
