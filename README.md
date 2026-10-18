@@ -15,9 +15,15 @@ oglc-hill-runner                # the main screen: play, demo, settings, credits
 oglc-hill-runner --demo         # the autopilot plays, with no main screen
 oglc-hill-runner --seed 7       # a different hill
 oglc-hill-runner --no-sound --size 1920 1080
-oglc-hill-runner --no-forest --no-photos   # no use of the forest demo's art, no download
-oglc-hill-runner --yes            # fetch the game's own art without asking, where it is not here
+oglc-hill-runner --no-forest --no-photos   # no use of the forest demo's art or the engine's textures, no download
+oglc-hill-runner --yes            # fetch the packs below without asking, where they are not here
 ```
+
+The game runs on three downloads, all under Creative Commons terms: its own art and sound (the runner,
+the music, the sounds), the forest demo's trees and ground cover, and the engine's photographic
+textures (CC0). The first run lists them with their sizes and terms, asks once and fetches them
+into the per-user content store; later runs find them there. A checkout holding the art in
+`src/openglcontext_hill_runner/assets` does not fetch its own pack.
 
 ## Playing
 

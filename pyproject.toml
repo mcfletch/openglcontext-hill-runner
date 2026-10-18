@@ -28,11 +28,11 @@ dependencies = [
     "numpy>=2.0",
     "PyOpenGL>=4.0.0a1",
     "glfw>=2.5",
+    # The trees and ground cover; the game fetches the forest demo's art with its own
+    "openglcontext-forest-demo",
 ]
 
 [project.optional-dependencies]
-# The forest demo's trees and ground cover, which the game plants where the art is installed.
-forest = ["openglcontext-forest-demo"]
 test = ["pytest>=7", "pytest-timeout", "pillow"]
 dev = ["openglcontext-hill-runner[test]", "ruff", "mypy"]
 

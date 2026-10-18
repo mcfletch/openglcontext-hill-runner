@@ -54,10 +54,10 @@ def test_the_pack_holds_the_art_and_the_terms_it_is_under(tmp_path):
     assert 'Quaternius' in credits and 'RandomMind' in credits and 'Trees and ground cover' not in credits
 
 
-def test_a_run_from_a_checkout_asks_nothing(monkeypatch, capsys):
+def test_a_run_from_a_checkout_asks_nothing_about_art_the_checkout_holds(monkeypatch, capsys):
     from openglcontext_hill_runner import run
     monkeypatch.setattr('builtins.input', lambda prompt='': pytest.fail('asked'))
-    run.fetch_assets()
+    run.fetch_assets(photos=False)
     assert capsys.readouterr().out == ''
 
 
@@ -70,5 +70,42 @@ def test_a_run_with_no_art_and_no_yes_stops_without_downloading(tmp_path, monkey
     monkeypatch.setattr(content, 'CONTENT', bare)
     monkeypatch.setattr('builtins.input', lambda prompt='': 'no')
     with pytest.raises(SystemExit, match='Not downloading'):
-        run.fetch_assets()
+        run.fetch_assets(forest=False, photos=False)
     assert not (tmp_path / 'store' / content.NAMESPACE / 'assets').exists()
+
+
+@pytest.fixture
+def nothing_here(tmp_path, monkeypatch):
+    """Every pack the game runs on missing: no checkout copies and empty stores."""
+    from OpenGLContext.contentpacks import Application
+    from openglcontext_forest_demo import content as forest_content
+    monkeypatch.setenv('OPENGLCONTEXT_CONTENT', str(tmp_path / 'engine'))
+    monkeypatch.setattr('OpenGLContext.userpaths.appdatadirectory', lambda: str(tmp_path / 'appdata'))
+    bare = Application(content.NAMESPACE, content.CATALOG_PATH, base=content.BASE,
+                       fallback=str(tmp_path / 'nothing'), root=str(tmp_path / 'runner'))
+    monkeypatch.setattr(content, 'CONTENT', bare)
+    monkeypatch.setattr(forest_content, 'CONTENT', Application(
+        forest_content.NAMESPACE, forest_content.CATALOG_PATH, base=forest_content.BASE,
+        fallback=str(tmp_path / 'nothing'), root=str(tmp_path / 'forest')))
+
+
+def test_the_game_runs_on_its_own_art_the_forest_demos_and_the_engines_textures(nothing_here):
+    assert [need.pack.key for need in content.required()] == [
+        'openglcontext-hill-runner/assets', 'openglcontext-forest/art', 'openglcontext/textures']
+
+
+def test_the_options_that_do_without_the_forest_and_the_photographs_need_neither(nothing_here):
+    assert [need.pack.key for need in content.required(forest=False, photos=False)] == [
+        'openglcontext-hill-runner/assets']
+
+
+def test_the_packs_are_offered_on_one_question(nothing_here, monkeypatch, capsys):
+    from openglcontext_hill_runner import run
+    questions = []
+    monkeypatch.setattr('builtins.input', lambda prompt='': questions.append(prompt) or 'no')
+    with pytest.raises(SystemExit, match='Not downloading'):
+        run.fetch_assets()
+    shown = capsys.readouterr().out
+    assert len(questions) == 1
+    for title in ('Hill runner art and sound', 'CC0 PBR textures'):
+        assert shown.count(title) == 1

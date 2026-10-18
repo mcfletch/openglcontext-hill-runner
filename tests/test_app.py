@@ -432,7 +432,6 @@ def test_the_command_opens_on_the_main_screen_unless_the_computer_is_to_play(mon
     played = []
     monkeypatch.setattr(RunnerContext, 'ContextMainLoop', classmethod(lambda cls, **_: played.append(
         (cls.main_menu, cls.demo))))
-    monkeypatch.setattr(run.cc0, 'ensure_pack', lambda **_: None)
     for arguments in ([], ['--demo']):
         run.main(arguments + ['--no-photos'])
     assert played == [(True, False), (False, True)]
