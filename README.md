@@ -1,6 +1,14 @@
-# openglcontext-hill-runner
+# OpenGLContext Hill Runner Demo
 
-An endless runner down a hill that never ends, built on OpenGLContext.
+OpenGLContext engine demo that creates an endless runner game down a valley on a hill.
+Demonstrates tiles3d on-demand tile creation, GPU accelerated animations, vegetation,
+GUI widgets and the Heads Up Display.
+
+```bash
+uv run --pre --with openglcontext-hill-runner oglc-hill-runner
+```
+
+Or you can pip-install it and run like so:
 
 ```bash
 oglc-hill-runner                # the main screen: play, demo, settings, credits, quit
@@ -8,6 +16,7 @@ oglc-hill-runner --demo         # the autopilot plays, with no main screen
 oglc-hill-runner --seed 7       # a different hill
 oglc-hill-runner --no-sound --size 1920 1080
 oglc-hill-runner --no-forest --no-photos   # no use of the forest demo's art, no download
+oglc-hill-runner --yes            # fetch the game's own art without asking, where it is not here
 ```
 
 ## Playing
@@ -16,7 +25,6 @@ oglc-hill-runner --no-forest --no-photos   # no use of the forest demo's art, no
 | --- | --- |
 | Left, Right | Hop to the next path, unless a hedge stands between the two or the paths have drawn apart |
 | Up | Jump over a log or a boulder, or up to a jewel |
-oglc-hill-runner --yes            # fetch the game's own art without asking, where it is not here
 | Down | Slide under a gate (in the air: drop, then slide). Held on, the runner stays down, and rises only when the key is let go: the body rises over the last 0.3 s of a slide, and a gate met then is a hit |
 | Escape | Menu: resume, restart, demo, settings, credits, quit. Demo hands the run to the computer, which runs without a hit for as long as it is left; the menu's Play takes it back. The main screen the game opens on offers Play and Demo too |
 | Alt+F | Show or hide the developer overlay: frame rate, timings and draw counts |
@@ -125,7 +133,7 @@ The render smoke test skips where there is no display.
 
 ## Assets
 
-Audio and the character are CC0. The music is Medieval: Market Day by RandomMind. The forest demo's tree models are CC-BY 4.0 and credited on launch. `ASSET-LICENSES.md` lists each file. The character's `Slide` clip is made by
+Audio and the character are CC0. The music is Medieval: Market Day by RandomMind. The forest demo's tree models are CC-BY 4.0 and credited on launch. [ASSET-LICENSES](ASSET-LICENSES.md) lists each file. The character's `Slide` clip is made by
 `grass-clumps/slide.py` in the OpenGL-dev workspace.
 
 The runner, the music and the sounds (2.7 MB) are a content pack, `openglcontext-hill-runner/assets`, attached to
