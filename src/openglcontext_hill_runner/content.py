@@ -18,8 +18,8 @@ import os
 from OpenGLContext.contentpacks import Application, ContentStore
 from OpenGLContext.contentpacks.application import Need
 
-__all__ = ['BASE', 'CATALOG_PATH', 'CONTENT', 'IN_CHECKOUT', 'NAMESPACE', 'assets_directory', 'required',
-           'store']
+__all__ = ['BASE', 'CATALOG_PATH', 'CONTENT', 'FOREST', 'FOREST_BASE', 'FOREST_CATALOG_PATH',
+           'FOREST_NAMESPACE', 'IN_CHECKOUT', 'NAMESPACE', 'assets_directory', 'forest_directory', 'required', 'store']
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 #: The registry shipped with the game.
@@ -31,6 +31,14 @@ BASE = NAMESPACE + '/assets'
 IN_CHECKOUT = os.path.join(HERE, 'assets')
 
 CONTENT = Application(NAMESPACE, CATALOG_PATH, base=BASE, fallback=IN_CHECKOUT)
+
+#: The forest demo's art pack: the trees, their impostors and the ground cover. The registry is the
+#: entry the forest demo publishes (``forest_packs.json``, held to it by ``tests/test_content.py``),
+#: and its namespace is the forest demo's, so a machine that has the demo's art has this game's too.
+FOREST_CATALOG_PATH = os.path.join(HERE, 'forest_packs.json')
+FOREST_NAMESPACE = 'openglcontext-forest'
+FOREST_BASE = FOREST_NAMESPACE + '/art'
+FOREST = Application(FOREST_NAMESPACE, FOREST_CATALOG_PATH, base=FOREST_BASE)
 
 
 def store(root: str | None = None) -> ContentStore:
@@ -44,6 +52,12 @@ def assets_directory(where: ContentStore | None = None) -> str:
     return CONTENT.base_directory(where)
 
 
+def forest_directory(where: ContentStore | None = None) -> str:
+    """Where the forest demo's art is read from, as of now;
+    :class:`~OpenGLContext.contentpacks.application.NotInstalled` if it is not installed."""
+    return FOREST.base_directory(where)
+
+
 def required(forest: bool = True, photos: bool = True) -> list[Need]:
     """Every pack the game runs on that is not on this machine yet.
 
@@ -54,8 +68,7 @@ def required(forest: bool = True, photos: bool = True) -> list[Need]:
     from OpenGLContext.loaders import cc0
     needs = CONTENT.needs()
     if forest:
-        from openglcontext_forest_demo import content as forest_content
-        needs += forest_content.CONTENT.needs()
+        needs += FOREST.needs()
     if photos:
         needs += cc0.pack_needs()
     return needs

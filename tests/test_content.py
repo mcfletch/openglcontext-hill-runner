@@ -78,15 +78,14 @@ def test_a_run_with_no_art_and_no_yes_stops_without_downloading(tmp_path, monkey
 def nothing_here(tmp_path, monkeypatch):
     """Every pack the game runs on missing: no checkout copies and empty stores."""
     from OpenGLContext.contentpacks import Application
-    from openglcontext_forest_demo import content as forest_content
     monkeypatch.setenv('OPENGLCONTEXT_CONTENT', str(tmp_path / 'engine'))
     monkeypatch.setattr('OpenGLContext.userpaths.appdatadirectory', lambda: str(tmp_path / 'appdata'))
     bare = Application(content.NAMESPACE, content.CATALOG_PATH, base=content.BASE,
                        fallback=str(tmp_path / 'nothing'), root=str(tmp_path / 'runner'))
     monkeypatch.setattr(content, 'CONTENT', bare)
-    monkeypatch.setattr(forest_content, 'CONTENT', Application(
-        forest_content.NAMESPACE, forest_content.CATALOG_PATH, base=forest_content.BASE,
-        fallback=str(tmp_path / 'nothing'), root=str(tmp_path / 'forest')))
+    monkeypatch.setattr(content, 'FOREST', Application(
+        content.FOREST_NAMESPACE, content.FOREST_CATALOG_PATH, base=content.FOREST_BASE,
+        root=str(tmp_path / 'forest')))
 
 
 def test_the_game_runs_on_its_own_art_the_forest_demos_and_the_engines_textures(nothing_here):
@@ -109,3 +108,12 @@ def test_the_packs_are_offered_on_one_question(nothing_here, monkeypatch, capsys
     assert len(questions) == 1
     for title in ('Hill runner art and sound', 'CC0 PBR textures'):
         assert shown.count(title) == 1
+
+
+def test_the_forest_demos_pack_is_the_one_the_forest_demo_publishes():
+    from OpenGLContext.contentpacks import catalog
+    spec = importlib.util.find_spec('openglcontext_forest_demo')
+    if spec is None or not spec.submodule_search_locations:
+        pytest.skip("the forest demo is not installed to compare with")
+    published = os.path.join(list(spec.submodule_search_locations)[0], 'packs.json')
+    assert catalog.load(content.FOREST_CATALOG_PATH) == catalog.load(published)

@@ -64,8 +64,8 @@ MAPLES = (2, 3, 4, 5)
 
 
 def _art_directory() -> str:
-    from openglcontext_forest_demo import content
-    return str(content.art_directory())
+    from openglcontext_hill_runner import content
+    return content.forest_directory()
 
 
 def forest_art() -> str | None:

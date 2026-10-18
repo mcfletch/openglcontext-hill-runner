@@ -28,8 +28,6 @@ dependencies = [
     "numpy>=2.0",
     "PyOpenGL>=4.0.0a1",
     "glfw>=2.5",
-    # The trees and ground cover; the game fetches the forest demo's art with its own
-    "openglcontext-forest-demo",
 ]
 
 [project.optional-dependencies]
@@ -50,7 +48,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 # The art is a content pack fetched on the first run (content.py), not part of the wheel.
-openglcontext_hill_runner = ["packs.json"]
+openglcontext_hill_runner = ["packs.json", "forest_packs.json"]
 
 [tool.openglcontext-checks]
 select = ["OGC101", "OGC102", "OGC111", "OGC121", "OGC131", "OGC141", "OGC201", "OGC221", "OGC222", "OGC223"]
