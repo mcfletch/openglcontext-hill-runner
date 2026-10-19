@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Multimedia :: Graphics :: 3D Rendering",
 ]
 dependencies = [
-    "OpenGLContext[audio]>=3.0.0a5",
+    "OpenGLContext[glfw,video,audio]>=3.0.0a5",
     "opengl_extrusions>=1.2.1a1",
     "numpy>=2.0",
     "PyOpenGL>=4.0.0a1",
