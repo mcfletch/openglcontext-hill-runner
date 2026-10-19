@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=7", "pytest-timeout", "pillow"]
+test = ["pytest>=7", "pytest-timeout", "pillow", "tomli; python_version < '3.11'"]
 dev = ["openglcontext-hill-runner[test]", "ruff", "mypy"]
 
 [project.scripts]

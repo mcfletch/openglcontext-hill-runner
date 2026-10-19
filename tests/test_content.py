@@ -1,13 +1,18 @@
 """Where the game's own art comes from: a pack fetched from a GitHub release, or the checkout's copy."""
 import importlib.util
 import os
+import sys
 import tarfile
 
 import pytest
-import tomllib
 from OpenGLContext.contentpacks.application import NotInstalled
 
 from openglcontext_hill_runner import content
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -57,7 +62,7 @@ def test_the_pack_holds_the_art_and_the_terms_it_is_under(tmp_path):
 def test_a_run_from_a_checkout_asks_nothing_about_art_the_checkout_holds(monkeypatch, capsys):
     from openglcontext_hill_runner import run
     monkeypatch.setattr('builtins.input', lambda prompt='': pytest.fail('asked'))
-    run.fetch_assets(photos=False)
+    run.fetch_assets(forest=False, photos=False)
     assert capsys.readouterr().out == ''
 
 
