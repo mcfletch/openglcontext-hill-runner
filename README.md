@@ -17,6 +17,7 @@ oglc-hill-runner --seed 7       # a different hill
 oglc-hill-runner --no-sound --size 1920 1080
 oglc-hill-runner --no-forest --no-photos   # no use of the forest demo's art or the engine's textures, no download
 oglc-hill-runner --yes            # fetch the packs below without asking, where they are not here
+oglc-hill-runner --record run.mp4 # the autopilot's run, recorded to a 30 second video
 ```
 
 The game runs on three downloads, all under Creative Commons terms: its own art and sound (the runner,
@@ -24,6 +25,32 @@ the music, the sounds), the forest demo's trees and ground cover, and the engine
 textures (CC0). The first run lists them with their sizes and terms, asks once and fetches them
 into the per-user content store; later runs find them there. A checkout holding the art in
 `src/openglcontext_hill_runner/assets` does not fetch its own pack.
+
+## Recording
+
+`--record PATH` records the autopilot's run to an MP4 file and exits when the video is done. It
+implies `--demo` and `--no-sound`: the run is the autopilot's, there is no main screen, and the
+file has no audio track.
+
+```bash
+oglc-hill-runner --record run.mp4 --record-codec hevc --record-seconds 20
+oglc-hill-runner --record run.mp4 --record-codec av1 --record-fps 30 --seed 7 --size 1920 1080
+```
+
+| Option | Does |
+| --- | --- |
+| `--record-codec` | `h264` (the default), `hevc`, `vp9` or `av1`. The GPU's video encoder has to produce it; the program says which codec is missing and exits with status 1 when it does not |
+| `--record-seconds` | Length of the video, 30 by default |
+| `--record-fps` | Frames a second, 60 by default |
+| `--record-delay` | Seconds the hill is given to stream in before recording starts, 3 by default. The run waits at its start meanwhile, so the video opens on the first metre |
+| `--record-bitrate` | Bits a second. The default, 0, is the encoder's: 0.25 bits a pixel, which is about 29 Mbit/s for a 1856 by 1044 video at 60 frames a second. Dense foliage blocks and smears at a quarter of that |
+
+The world advances by exactly one frame's worth of time for each frame written, so the video is
+smooth however long the frames took to draw, and the same seed records the same course. A recording
+is not in real time: 120 seconds of video takes as long to record as its frames take to draw, and a line every five seconds says how far along it is and how long is left. A run that is cut off leaves a video that plays up to a second or so before the end. The video is the size of the window's framebuffer, which is larger than
+`--size` on a display with scaling. Recording needs `OpenGLContext[video]`, which this package
+depends on, and a GPU video encoder: see
+OpenGLContext's `docs/recording.rst` for which GPUs and platforms have one.
 
 ## Playing
 

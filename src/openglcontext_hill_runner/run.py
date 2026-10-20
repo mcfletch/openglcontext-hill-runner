@@ -10,6 +10,11 @@ os.environ.setdefault("OPENGLCONTEXT_IBL", "full")
 
 from OpenGLContext.contentpacks.application import ask_on_console, console_progress, ensure_needs
 from OpenGLContext.contentpacks.store import CONTENT_OVERRIDE
+from OpenGLContext.video.commandline import (
+    RecordingRequest,
+    add_recording_arguments,
+    require_recording,
+)
 
 from openglcontext_hill_runner import content
 from openglcontext_hill_runner.app import RunnerContext
@@ -37,7 +42,23 @@ def build_parser() -> argparse.ArgumentParser:
                         help="draw the ground with procedural textures, with no download")
     parser.add_argument("--size", nargs=2, type=int, default=None, metavar=("WIDTH", "HEIGHT"),
                         help="the window's size in pixels")
+    add_recording_arguments(parser, seconds=30.0, fps=60, delay=3.0)
     return parser
+
+
+def recording_request(arguments: argparse.Namespace) -> RecordingRequest | None:
+    """The recording the options ask for, or None to play."""
+    return RecordingRequest.from_namespace(arguments)
+
+
+def plays_itself(arguments: argparse.Namespace) -> bool:
+    """Whether the autopilot runs, with no main screen: asked for, or implied by a recording."""
+    return bool(arguments.demo or arguments.record)
+
+
+def plays_silently(arguments: argparse.Namespace) -> bool:
+    """Whether there is no sound: asked for, or implied by a recording, which has no audio track."""
+    return bool(arguments.no_sound or arguments.record)
 
 
 def fetch_assets(assume_yes: bool = False, forest: bool = True, photos: bool = True) -> None:
@@ -71,19 +92,25 @@ def fetch_assets(assume_yes: bool = False, forest: bool = True, photos: bool = T
 
 def main(argv: Any = None) -> None:
     """Play the game, with the options of ``argv`` (the command line by default)."""
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    request = require_recording(parser, recording_request(args))
     fetch_assets(assume_yes=args.yes, forest=not args.no_forest, photos=not args.no_photos)
     RunnerContext.seed = args.seed
-    RunnerContext.demo = args.demo
-    RunnerContext.main_menu = not args.demo
-    RunnerContext.sound = not args.no_sound
+    RunnerContext.demo = plays_itself(args)
+    RunnerContext.main_menu = not plays_itself(args)
+    RunnerContext.sound = not plays_silently(args)
+    RunnerContext.record_request = request
     RunnerContext.photos = not args.no_photos
     RunnerContext.forest = not args.no_forest
     print(CONTROLS)
-    if args.size:
-        RunnerContext.ContextMainLoop(size=tuple(args.size))
-    else:
-        RunnerContext.ContextMainLoop(size=(1280, 720))
+    size = tuple(args.size) if args.size else (1280, 720)
+    if request is None:
+        RunnerContext.ContextMainLoop(size=size)
+        return
+    # Frames are not paced to the display: a recording is as long as its frames, and a window the
+    # compositor is not presenting never receives the callback a paced swap waits for.
+    RunnerContext.ContextMainLoop(size=size, vsync=False)
 
 
 if __name__ == "__main__":

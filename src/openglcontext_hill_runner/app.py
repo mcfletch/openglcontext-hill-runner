@@ -8,6 +8,7 @@ mixer, the HUD and the camera.
 import contextlib
 import math
 import os
+import sys
 from collections.abc import Iterator
 from typing import Any
 
@@ -19,6 +20,7 @@ from OpenGLContext.context import Context, getCurrentContext
 from OpenGLContext.contextdefinition import ContextDefinition
 from OpenGLContext.events.systemtime import systemTime
 from OpenGLContext.move.followcam import FollowCamera
+from OpenGLContext.processexit import flush_and_exit
 from OpenGLContext.scenegraph.basenodes import (
     Background,
     DirectionalLight,
@@ -29,6 +31,8 @@ from OpenGLContext.scenegraph.basenodes import (
 from OpenGLContext.scenegraph.generatedtiles import GeneratedTiles
 from OpenGLContext.scenegraph.vegetation.field import NEAR_RADIUS
 from OpenGLContext.ui import dialogs, settings
+from OpenGLContext.video.commandline import RecordingRequest
+from OpenGLContext.video.recorder import RecordingMixin, RecordingUnavailable
 
 from openglcontext_hill_runner import atmosphere, canopy, content, credits, menu, woods
 from openglcontext_hill_runner import course as c
@@ -66,8 +70,13 @@ SUN_INTENSITY = 2.4
 SHADOW_INTENSITY = 0.65
 
 
-class RunnerContext(Context):
-    """The runner game's window."""
+class RunnerContext(RecordingMixin, Context):
+    """The runner game's window.
+
+    With a :attr:`record_request` it records the run to a video file and quits when the video is
+    done. The run is held at its start until the recording has its first frame, so the video opens
+    on the start of the run and the hill has been made by then.
+    """
 
     windowSystemName = 'glfw'
     #: No free-fly: the chase camera is all that moves the view.
@@ -90,6 +99,8 @@ class RunnerContext(Context):
     forest = True
     #: Whether the game opens on the main screen rather than running at once.
     main_menu = False
+    #: The video to record the run to, or None to play.
+    record_request: RecordingRequest | None = None
 
     #: The game opens on its own screen; Alt+F brings up the engine's developer overlay.
     debugOverlayStartsVisible = False
@@ -115,6 +126,8 @@ class RunnerContext(Context):
         for key, method in CONTROLS.items():
             self.addEventHandler('keyboard', name=key, state=1, function=getattr(self, method))
         self.mixer.start_music()
+        if self.record_request is not None:
+            self.setupRecording(self.record_request.path, **self.record_request.options())
         if self.main_menu:
             self._show_main_menu()
         print('\n'.join(credits.startup(self.woods is not None, self.photos)))
@@ -262,6 +275,8 @@ class RunnerContext(Context):
         now = systemTime()
         elapsed = now - self._last
         self._last = now
+        if self.awaiting_recording:
+            elapsed = 0.0
         paused = self.overlays.visible
         self.mixer.pause(paused)
         if not paused:
@@ -272,6 +287,20 @@ class RunnerContext(Context):
                     self.session.game, on_retry=self._restart, on_quit=self.OnQuit))
         self.triggerRedraw(1)
         return 1
+
+    def presentFrame(self) -> Any:
+        """Offer the finished frame to the recording, then show it.
+
+        A GPU that does not encode the codec asked for ends the program with the reason on standard
+        error and a non-zero status; quitting through ``OnQuit`` ends it with status 0.
+        """
+        try:
+            self.tickRecording()
+        except RecordingUnavailable as error:
+            sys.stderr.write("Not recording: %s\n" % error)
+            self.recorder = None
+            flush_and_exit(1)
+        return super().presentFrame()
 
     def _apply(self, frame: Frame, now: float) -> None:
         game = self.session.game
