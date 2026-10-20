@@ -58,7 +58,7 @@ def test_a_run_is_recorded_in_the_codec_asked_for(tmp_path, codec, encoded):
     assert "recorded 30 frames" in result.stdout, result.stdout[-1000:]
     with MP4Reader(path) as movie:
         assert codecs.canonical(movie.video.codec) == codec
-        # AV1 is coded in blocks of eight, so its picture is trimmed to a multiple of 8
+        # AV1 is coded in blocks of sixteen, so its picture is trimmed to a multiple of 16
         assert movie.video.size == ((320, 176) if codec == "av1" else (320, 180))
         assert movie.duration == pytest.approx(1.0, abs=0.1)
 
