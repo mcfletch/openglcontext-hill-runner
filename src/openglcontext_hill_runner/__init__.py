@@ -11,4 +11,4 @@ with no GL, tested without a window; ``app`` is the window that draws them.
 Run it with ``oglc-hill-runner``, or ``python -m openglcontext_hill_runner``.
 """
 
-__version__ = "0.1.0a2"
+__version__ = "0.1.0a3"
