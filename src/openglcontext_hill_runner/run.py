@@ -56,6 +56,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="how far from the runner the grass and plants are drawn as geometry, "
                              "in metres; further they are cards. A shorter reach is faster "
                              "(default %(default)s)")
+    parser.add_argument("--no-scatter-process", action="store_true",
+                        help="scatter the grass and plants on threads of the game's own, not in "
+                             "processes of their own")
     parser.add_argument("--size", nargs=2, type=int, default=None, metavar=("WIDTH", "HEIGHT"),
                         help="the window's size in pixels")
     add_recording_arguments(parser, seconds=30.0, fps=60, delay=3.0)
@@ -120,6 +123,7 @@ def main(argv: Any = None) -> None:
     RunnerContext.photos = not args.no_photos
     RunnerContext.forest = not args.no_forest
     RunnerContext.grass_reach = args.grass_reach
+    RunnerContext.scatter_processes = not args.no_scatter_process
     print(CONTROLS)
     size = tuple(args.size) if args.size else (1280, 720)
     if request is None:

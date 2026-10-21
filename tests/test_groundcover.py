@@ -171,3 +171,63 @@ def test_the_cover_is_lit_by_the_shade_of_the_trees_and_a_new_hill_has_its_own()
         assert cover.canopy is not first and cover.grass.shade is cover.canopy
     finally:
         cover.shutdown()
+
+
+@needs_art
+class TestScatteredInProcesses:
+    """The grass and plants made by a process of their own are the ones the cover makes in line."""
+
+    def test_the_factory_makes_the_scatter_the_cover_makes(self, land):
+        art = w.forest_art()
+        cover = g.Cover(art, land)
+        try:
+            for which, node in (('grass', cover.grass), ('plants', cover.plants)):
+                maker = g.scatter_maker(land.course.seed, land.course.caves, art, g.CLUMP_REACH, which)
+                rung = node.rungs[0]
+                wanted = node._scatter(rung, 'cards', 20.0, -300.0, g.CARD_REACH, 2.0, rung.species.height)
+                found = maker.make(('disc', 0, 'cards', 20.0, -300.0, g.CARD_REACH, 2.0, rung.species.height))
+                assert len(found[0]) > 0
+                assert all((a is None and b is None) or np.array_equal(a, b)
+                           for a, b in zip(found, wanted, strict=True))
+        finally:
+            cover.shutdown()
+
+    def test_the_factory_loads_no_meshes(self, land):
+        maker = g.scatter_maker(land.course.seed, land.course.caves, w.forest_art(), g.CLUMP_REACH,
+                                'grass')
+        assert all(rung.clumps_far is None for rung in maker.cover.rungs)
+
+    def test_a_cover_given_processes_grows_what_a_cover_grows_in_line(self, land):
+        art = w.forest_art()
+        inline, remote = g.Cover(art, land), g.Cover(art, land, processes=True)
+        try:
+            for node in remote.nodes:
+                assert node._remote.wait_until_ready(120.0)
+            for place in ((0.0, 2.0, -50.0), (0.0, 2.0, -400.0)):
+                inline.update(place)
+                remote.update(place)
+                assert inline.wait(60.0) and remote.wait(60.0)
+                inline.update(place)
+                remote.update(place)
+            for a, b in zip(inline.nodes, remote.nodes, strict=True):
+                assert np.array_equal(a.rungs[0].cards.pos, b.rungs[0].cards.pos)
+            assert all(node._remote.requests > 1 for node in remote.nodes)
+        finally:
+            inline.shutdown()
+            remote.shutdown()
+
+    def test_a_relocated_cover_has_processes_for_its_new_hill(self, land):
+        cover = g.Cover(w.forest_art(), land, processes=True)
+        try:
+            first = cover.grass._remote
+            cover.relocate(ls.Landscape(c.Course(4)))
+            assert first.closed
+            assert cover.grass._remote is not first
+        finally:
+            cover.shutdown()
+
+    def test_shutting_the_cover_down_stops_its_processes(self, land):
+        cover = g.Cover(w.forest_art(), land, processes=True)
+        remotes = [node._remote for node in cover.nodes]
+        cover.shutdown()
+        assert all(remote.closed for remote in remotes)

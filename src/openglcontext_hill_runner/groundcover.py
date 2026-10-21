@@ -15,7 +15,9 @@ from OpenGLContext.scenegraph.vegetation.cover import (
     GroundCover,
     read_cover_manifest,
 )
+from OpenGLContext.scenegraph.vegetation.coverprocess import CoverProcess, CoverScatterMaker
 
+from openglcontext_hill_runner import course as c
 from openglcontext_hill_runner.canopy import Canopy
 from openglcontext_hill_runner.landscape import Landscape
 from openglcontext_hill_runner.scenery import HillField
@@ -75,27 +77,70 @@ def plants_where(land: Landscape) -> Any:
     return _weight(land, land.cover_density, PLANTS_CLEAR)
 
 
+#: The factory a scatter process builds its :class:`CoverScatterMaker` with, as the engine names it.
+SCATTER = 'openglcontext_hill_runner.groundcover:scatter_maker'
+
+
+def grown(art: str, land: Landscape, reach: float, canopy: Canopy,
+          scatter_only: bool = False) -> tuple[GroundCover, GroundCover]:
+    """The grass and the other plants of ``land``, as two ground covers.
+
+    ``scatter_only`` leaves out the clump meshes, which only a node that draws needs.
+    """
+    grasses, plants = split(read_cover_manifest(art))
+    if scatter_only:
+        grasses, plants = ([s.varied(clump='') for s in grasses],
+                           [s.varied(clump='') for s in plants])
+    ground = HillField(land)
+    grass = GroundCover(ground, grasses, clump_radius=reach, card_radius=CARD_REACH,
+                        far_radius=CARD_REACH, fade=FADE, mask=grass_where(land),
+                        shade=canopy, background=not scatter_only)
+    other = GroundCover(ground, plants, clump_radius=reach, card_radius=CARD_REACH,
+                        far_radius=CARD_REACH, fade=FADE, mask=plants_where(land),
+                        shade=canopy, background=not scatter_only)
+    return grass, other
+
+
+def scatter_maker(seed: int, caves: bool, art: str, reach: float, which: str) -> CoverScatterMaker:
+    """What a scatter process holds: the ground cover of the hill of ``seed`` that grows
+    ``which`` ('grass' or 'plants'), with a ``make`` for its scatter."""
+    land = Landscape(c.Course(seed, caves))
+    grass, plants = grown(art, land, reach, Canopy(land), scatter_only=True)
+    return CoverScatterMaker({'grass': grass, 'plants': plants}[which])
+
+
 class Cover:
     """The grass and the other plants of one hill, scattered about the camera on a worker.
 
     ``reach`` is how far from the camera, in metres, plants are drawn as geometry; beyond it, as
     far as :data:`CARD_REACH`, they are cards. Geometry is what costs the GPU most, and a shorter
     reach is the cheapest way to buy back a frame.
+
+    With ``processes`` the scatter is made by a process for each node rather than by threads of
+    the game's own, which would take the interpreter lock from the frame; the nodes scatter in
+    line until the processes are up.
     """
 
-    def __init__(self, art: str, land: Landscape, reach: float = CLUMP_REACH) -> None:
+    def __init__(self, art: str, land: Landscape, reach: float = CLUMP_REACH,
+                 processes: bool = False) -> None:
+        self.art = art
+        self.reach = reach
+        self.processes = processes
         self.land = land
         #: How much of the sun reaches the ground between the trees: what each plant is lit by.
         self.canopy = Canopy(land)
         self._prepared_at = -math.inf
-        grasses, plants = split(read_cover_manifest(art))
-        ground = HillField(land)
-        self.grass = GroundCover(ground, grasses, clump_radius=reach, card_radius=CARD_REACH,
-                                 far_radius=CARD_REACH, fade=FADE, mask=grass_where(land),
-                                 shade=self.canopy, background=True)
-        self.plants = GroundCover(ground, plants, clump_radius=reach, card_radius=CARD_REACH,
-                                  far_radius=CARD_REACH, fade=FADE, mask=plants_where(land),
-                                  shade=self.canopy, background=True)
+        self.grass, self.plants = grown(art, land, reach, self.canopy)
+        self._scatter_in_processes()
+
+    def _scatter_in_processes(self) -> None:
+        """Hand each node's scatter to a process of its own, if there are to be any."""
+        if not self.processes:
+            return
+        course = self.land.course
+        for which, node in (('grass', self.grass), ('plants', self.plants)):
+            node.use_process(CoverProcess(
+                SCATTER, (course.seed, course.caves, self.art, self.reach, which)))
 
     @property
     def nodes(self) -> list[GroundCover]:
@@ -110,6 +155,7 @@ class Cover:
         ground = HillField(land)
         self.grass.relocate(ground, mask=grass_where(land), shade=self.canopy)
         self.plants.relocate(ground, mask=plants_where(land), shade=self.canopy)
+        self._scatter_in_processes()
 
     def fill(self, eye: Any) -> None:
         """Scatter the cover about ``eye`` now, so the first frame has it."""
@@ -137,6 +183,6 @@ class Cover:
         return all([node.wait(timeout) for node in self.nodes])
 
     def shutdown(self) -> None:
-        """Stop the workers."""
+        """Stop the workers, and the processes if there are any."""
         for node in self.nodes:
             node.shutdown()

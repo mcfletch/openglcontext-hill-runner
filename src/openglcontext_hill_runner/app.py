@@ -102,6 +102,9 @@ class RunnerContext(RecordingMixin, Context):
     forest = True
     #: How far from the camera the ground cover is drawn as geometry, in metres.
     grass_reach = CLUMP_REACH
+    #: Whether the ground cover is scattered by processes of its own, which take no time from the
+    #: frame, or by threads, which do.
+    scatter_processes = True
     #: Whether the game opens on the main screen rather than running at once.
     main_menu = False
     #: The video to record the run to, or None to play.
@@ -147,7 +150,8 @@ class RunnerContext(RecordingMixin, Context):
         else:
             self.woods.relocate(land)
         if self.cover is None:
-            self.cover = Cover(art, land, reach=self.grass_reach)
+            self.cover = Cover(art, land, reach=self.grass_reach,
+                               processes=self.scatter_processes)
         else:
             self.cover.relocate(land)
 
