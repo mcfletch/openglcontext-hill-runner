@@ -122,6 +122,18 @@ def test_the_cover_reaches_as_far_as_its_cards_and_has_no_sparse_field_beyond():
         cover.shutdown()
 
 
+def test_the_grass_geometry_reaches_as_far_as_it_is_asked_to_and_the_cards_no_nearer():
+    art = w.forest_art()
+    if art is None:
+        pytest.skip("the forest demo's art is not installed")
+    cover = g.Cover(art, ls.Landscape(c.Course(1)), reach=18.0)
+    try:
+        for node in cover.nodes:
+            assert (node.clump_radius, node.card_radius) == (18.0, g.CARD_REACH)
+    finally:
+        cover.shutdown()
+
+
 def test_the_cover_scatters_the_trail_ahead_as_the_runner_gets_on_and_dissolves_early():
     art = w.forest_art()
     if art is None:

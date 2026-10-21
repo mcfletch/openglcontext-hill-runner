@@ -16,6 +16,7 @@ oglc-hill-runner --demo         # the autopilot plays, with no main screen
 oglc-hill-runner --seed 7       # a different hill
 oglc-hill-runner --no-sound --size 1920 1080
 oglc-hill-runner --no-forest --no-photos   # no use of the forest demo's art or the engine's textures, no download
+oglc-hill-runner --grass-reach 18 # draw grass as geometry out to 18 m, not 34: faster on a weak GPU
 oglc-hill-runner --yes            # fetch the packs below without asking, where they are not here
 oglc-hill-runner --record run.mp4 # the autopilot's run, recorded to a 30 second video
 ```

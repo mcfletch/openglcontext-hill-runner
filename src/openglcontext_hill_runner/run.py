@@ -18,12 +18,24 @@ from OpenGLContext.video.commandline import (
 
 from openglcontext_hill_runner import content
 from openglcontext_hill_runner.app import RunnerContext
+from openglcontext_hill_runner.groundcover import CLUMP_REACH
 
 CONTROLS = """\
 Hill runner: left and right hop between the paths, up jumps, down slides.
 Escape opens the menu. F2 saves a screenshot. Alt+F shows the developer overlay.
 A hit costs 100 coins to continue; with fewer, the run is over.
 """
+
+
+def _metres(text: str) -> float:
+    """A distance in metres, more than zero."""
+    try:
+        metres = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("%r is not a number of metres" % text) from None
+    if not metres > 0.0:
+        raise argparse.ArgumentTypeError("the reach must be more than zero metres, not %s" % text)
+    return metres
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
                              "of) the forest demo's art")
     parser.add_argument("--no-photos", action="store_true",
                         help="draw the ground with procedural textures, with no download")
+    parser.add_argument("--grass-reach", type=_metres, default=CLUMP_REACH, metavar="METRES",
+                        help="how far from the runner the grass and plants are drawn as geometry, "
+                             "in metres; further they are cards. A shorter reach is faster "
+                             "(default %(default)s)")
     parser.add_argument("--size", nargs=2, type=int, default=None, metavar=("WIDTH", "HEIGHT"),
                         help="the window's size in pixels")
     add_recording_arguments(parser, seconds=30.0, fps=60, delay=3.0)
@@ -103,6 +119,7 @@ def main(argv: Any = None) -> None:
     RunnerContext.record_request = request
     RunnerContext.photos = not args.no_photos
     RunnerContext.forest = not args.no_forest
+    RunnerContext.grass_reach = args.grass_reach
     print(CONTROLS)
     size = tuple(args.size) if args.size else (1280, 720)
     if request is None:

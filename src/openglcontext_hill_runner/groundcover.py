@@ -76,19 +76,24 @@ def plants_where(land: Landscape) -> Any:
 
 
 class Cover:
-    """The grass and the other plants of one hill, scattered about the camera on a worker."""
+    """The grass and the other plants of one hill, scattered about the camera on a worker.
 
-    def __init__(self, art: str, land: Landscape) -> None:
+    ``reach`` is how far from the camera, in metres, plants are drawn as geometry; beyond it, as
+    far as :data:`CARD_REACH`, they are cards. Geometry is what costs the GPU most, and a shorter
+    reach is the cheapest way to buy back a frame.
+    """
+
+    def __init__(self, art: str, land: Landscape, reach: float = CLUMP_REACH) -> None:
         self.land = land
         #: How much of the sun reaches the ground between the trees: what each plant is lit by.
         self.canopy = Canopy(land)
         self._prepared_at = -math.inf
         grasses, plants = split(read_cover_manifest(art))
         ground = HillField(land)
-        self.grass = GroundCover(ground, grasses, clump_radius=CLUMP_REACH, card_radius=CARD_REACH,
+        self.grass = GroundCover(ground, grasses, clump_radius=reach, card_radius=CARD_REACH,
                                  far_radius=CARD_REACH, fade=FADE, mask=grass_where(land),
                                  shade=self.canopy, background=True)
-        self.plants = GroundCover(ground, plants, clump_radius=CLUMP_REACH, card_radius=CARD_REACH,
+        self.plants = GroundCover(ground, plants, clump_radius=reach, card_radius=CARD_REACH,
                                   far_radius=CARD_REACH, fade=FADE, mask=plants_where(land),
                                   shade=self.canopy, background=True)
 

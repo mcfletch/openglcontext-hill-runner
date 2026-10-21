@@ -44,3 +44,19 @@ def test_playing_is_unchanged_without_a_recording():
     assert run.plays_silently(arguments) is False
     assert run.plays_itself(parsed('--demo')) is True
     assert run.plays_silently(parsed('--no-sound')) is True
+
+
+def test_the_grass_reaches_as_far_as_the_game_draws_it_unless_told_otherwise():
+    from openglcontext_hill_runner import groundcover
+    assert parsed().grass_reach == groundcover.CLUMP_REACH
+
+
+def test_the_grass_reach_is_set_in_metres():
+    assert parsed('--grass-reach', '18').grass_reach == 18.0
+
+
+@pytest.mark.parametrize('metres', ['0', '-5'])
+def test_a_grass_reach_that_draws_no_grass_is_refused(metres, capsys):
+    with pytest.raises(SystemExit):
+        parsed('--grass-reach', metres)
+    assert 'more than zero' in capsys.readouterr().err

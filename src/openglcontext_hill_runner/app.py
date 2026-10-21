@@ -37,7 +37,7 @@ from OpenGLContext.video.recorder import RecordingMixin, RecordingUnavailable
 from openglcontext_hill_runner import atmosphere, canopy, content, credits, menu, woods
 from openglcontext_hill_runner import course as c
 from openglcontext_hill_runner.chase import CAMERA_BACK, CAMERA_UP, PULL_BACK_MAX
-from openglcontext_hill_runner.groundcover import Cover
+from openglcontext_hill_runner.groundcover import CLUMP_REACH, Cover
 from openglcontext_hill_runner.hud import RunHud
 from openglcontext_hill_runner.landscape import Landscape
 from openglcontext_hill_runner.look import make_look
@@ -100,6 +100,8 @@ class RunnerContext(RecordingMixin, Context):
     sound = True
     photos = True
     forest = True
+    #: How far from the camera the ground cover is drawn as geometry, in metres.
+    grass_reach = CLUMP_REACH
     #: Whether the game opens on the main screen rather than running at once.
     main_menu = False
     #: The video to record the run to, or None to play.
@@ -145,7 +147,7 @@ class RunnerContext(RecordingMixin, Context):
         else:
             self.woods.relocate(land)
         if self.cover is None:
-            self.cover = Cover(art, land)
+            self.cover = Cover(art, land, reach=self.grass_reach)
         else:
             self.cover.relocate(land)
 
