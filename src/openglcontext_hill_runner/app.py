@@ -118,6 +118,8 @@ class RunnerContext(RecordingMixin, Context):
         """Load the character and the materials, build the scene and start the first run."""
         self.look = make_look(photos=self.photos)
         self.model = CharacterModel.load(os.path.join(content.assets_directory(), 'runner.glb'))
+        # The skin takes its pose from the mixer's arrays, and nothing reads a joint's node.
+        self.model.mixer.pose_write = 'exposed'
         self.mixer = Sounds(audioscene.engine_for(self) if self.sound else None)
         self.hud = RunHud()
         self.addHUDLayer(self.hud.layer)

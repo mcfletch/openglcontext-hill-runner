@@ -47,6 +47,11 @@ LOOK_ASIDE = 1.2
 SIDE_SINKING = 0.8
 
 
+#: The floor under the camera is looked up for this many metres of the run at a time, over the
+#: ground the camera will stand over for all of them.
+FLOOR_STALE = 2.0
+
+
 class Chase:
     """Works out where the camera looks, from the runner, each frame."""
 
@@ -58,6 +63,8 @@ class Chase:
         self._distance = runner.distance
         self._up = CAMERA_UP
         self._rising = 0.0
+        #: The path and the distance the floor under the camera was last looked up at, and what it was.
+        self._floor: tuple[int, float, float] | None = None
 
     def advance(self, dt: float) -> tuple[float, float, float]:
         """Move ``dt`` seconds on; returns the point to look at.
@@ -97,17 +104,29 @@ class Chase:
     def _floor_under_camera(self) -> float:
         """The highest the floor is anywhere the camera may be, from the path's own line to
         SIDE_STEP to the right of it and from CAMERA_BACK to as far back as it pulls at full
-        speed. The follow camera scales its whole offset by the pull-back."""
+        speed. The follow camera scales its whole offset by the pull-back.
+
+        Looked up for the next :data:`FLOOR_STALE` metres of the run at once, which the ground
+        sampled reaches as far ahead as, and kept until the run has gone that far, changes path or
+        goes back.
+        """
         runner = self.runner
+        held = self._floor
+        if (held is not None and self.land is not None and held[0] == runner.lane
+                and 0.0 <= runner.distance - held[1] < FLOOR_STALE):
+            return held[2]
         turn = self.heading()
         back = CAMERA_BACK * np.array([1.0, 1.0 + 0.5 * PULL_BACK_MAX, 1.0 + PULL_BACK_MAX])
         d = runner.distance + LOOK_AHEAD - back * math.cos(turn)
         if self.land is None:
             return float(np.max(c.ground_height(d)))
+        d = (d[:, None] + np.array([0.0, 0.5 * FLOOR_STALE, FLOOR_STALE])[None, :]).ravel()
         path = np.array([runner.course.lane_x(runner.lane, float(at)) for at in d])
         side = SIDE_STEP * (1.0 + PULL_BACK_MAX) * np.array([0.0, 0.5, 1.0])
         x = (path[:, None] + side[None, :]).ravel()
-        return float(np.max(self.land.footing(x, np.repeat(d, len(side)))))
+        floor = float(np.max(self.land.footing(x, np.repeat(d, len(side)))))
+        self._floor = (runner.lane, runner.distance, floor)
+        return floor
 
     def _room(self, looking_at: float, reach: float) -> float:
         """How far above ``looking_at`` the camera may stand: as high as it likes in the open,

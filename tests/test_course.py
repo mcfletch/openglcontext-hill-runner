@@ -327,3 +327,48 @@ def test_a_forks_paths_grow_in_from_nothing_and_out_again_by_fork_growth():
     assert growth[0] == pytest.approx(0.0) and growth[-1] == pytest.approx(0.0)
     assert 0.0 < growth[1] < 1.0 and 0.0 < growth[3] < 1.0
     assert growth[2] == pytest.approx(1.0)
+
+
+def _smooth_by_clip(t):
+    """What smooth has always answered, written with np.clip."""
+    t = np.clip(t, 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+@pytest.mark.parametrize('values', [
+    np.linspace(-2.0, 3.0, 101), np.array([0.0, 1.0, -0.0, 0.5, 1e-12, 1.0 - 1e-12]),
+    np.array([[0.2, 1.5], [-1.0, 0.7]]), np.array([np.nan, 0.5, np.inf, -np.inf])])
+def test_smooth_is_the_clipped_polynomial_over_arrays(values):
+    with np.errstate(invalid='ignore'):
+        assert np.array_equal(c.smooth(values), _smooth_by_clip(values), equal_nan=True)
+
+
+@pytest.mark.parametrize('value', [-3.0, 0.0, 0.25, 1.0, 7.5])
+def test_smooth_is_the_clipped_polynomial_for_a_number(value):
+    assert c.smooth(value) == _smooth_by_clip(value)
+    assert np.ndim(c.smooth(value)) == 0
+
+
+def _lane_x_by_arrays(world, lane, distance):
+    """Where a path lies, worked out from the array methods that answer for a whole run at once."""
+    d = np.array([distance], dtype=float)
+    state = world.fork_state(d)
+    extra = float(state.separation[0]) if state.running[0] and lane in c.Fork.lanes_of(int(state.side[0])) else 0.0
+    return float(world.centre(d)[0]) + c.lane_offset(lane) + extra
+
+
+@pytest.mark.parametrize('seed', [1, 2, 5])
+def test_where_a_path_lies_is_what_the_array_methods_say(seed):
+    world = c.Course(seed)
+    rng = np.random.default_rng(seed)
+    places = np.concatenate([rng.uniform(-50.0, 9000.0, 300), np.array([0.0, c.FORK_FIRST, c.FORK_FIRST - 1e-9]),
+                             [float(world._fork_start[1]), float(world._fork_end[1]), float(world._fork_start[1]) + 1.0],
+                             np.linspace(c.FORK_FIRST, c.FORK_FIRST + 4000.0, 400)])
+    for distance in places:
+        for lane in c.ALL_LANES:
+            assert world.lane_x(lane, float(distance)) == pytest.approx(
+                _lane_x_by_arrays(world, lane, float(distance)), abs=1e-9)
+
+
+def test_where_a_path_lies_is_a_number():
+    assert isinstance(c.Course(1).lane_x(1, 100.0), float)

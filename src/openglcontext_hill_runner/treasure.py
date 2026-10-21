@@ -5,6 +5,7 @@ They live in one :class:`TreasureField`, which keeps a node for each coin in vie
 and lets the rest go.
 """
 import math
+from dataclasses import dataclass
 
 import numpy as np
 from OpenGLContext.scenegraph import surfaces as sf
@@ -20,6 +21,11 @@ BEHIND = 12.0
 #: How far a coin rises and falls, in metres, and how fast it turns, in radians a second.
 BOB = 0.05
 SPIN = 2.6
+#: Coins within this many metres ahead of the runner turn and bob on every update; the ones further
+#: off do on every :data:`FAR_EVERY`-th, since from there a coin is a few pixels across and turns
+#: through 12 degrees between the updates it gets.
+ANIMATE_NEAR = 60.0
+FAR_EVERY = 4
 COIN_RADIUS = 0.125
 JEWEL_RADIUS = 0.13
 JEWEL_CROWN = 0.07
@@ -80,6 +86,23 @@ def jewel_geometry() -> sf.Geometry:
                        np.arange(count, dtype=np.uint32))
 
 
+@dataclass
+class _Placed:
+    """A coin shown: its node, and where it hangs, which does not change."""
+
+    coin: c.Coin
+    node: Transform
+    x: float
+    y: float
+    phase: float
+
+    def pose(self, now: float) -> None:
+        """Bob and turn the node to the time ``now``, in seconds."""
+        self.node.translation = (self.x, self.y + BOB * math.sin(now * 2.5 + self.phase),
+                                 -self.coin.distance)
+        self.node.rotation = (0.0, 1.0, 0.0, (now * SPIN + self.phase) % (2.0 * math.pi))
+
+
 class TreasureField(Group):
     """A node for each coin or jewel in view, turning as it hangs above the ground."""
 
@@ -88,8 +111,10 @@ class TreasureField(Group):
         look = look or make_look()
         self._coin = self._shaped(coin_geometry(), look.coin)
         self._jewel = self._shaped(jewel_geometry(), look.jewel)
-        self._nodes: dict[tuple[int, int], Transform] = {}
-        self._coins: dict[tuple[int, int], c.Coin] = {}
+        self._placed: dict[tuple[int, int], _Placed] = {}
+        #: The course the coins held were placed on, which is where they hang.
+        self._course: c.Course | None = None
+        self._updates = 0
 
     @staticmethod
     def _shaped(geometry: sf.Geometry, material: object) -> Shape:
@@ -103,24 +128,28 @@ class TreasureField(Group):
     def update(self, game: g.Game, now: float) -> None:
         """Show the coins in view as of ``now`` seconds, and let go of the rest."""
         wanted = {coin.ident: coin for coin in coins_in_view(game)}
-        # A coin of another course can have the name a coin of this one has, so what is held
-        # is compared by what the coin is and not by its name.
-        stale = [ident for ident, coin in self._coins.items() if wanted.get(ident) != coin]
-        changed = bool(stale) or wanted.keys() != self._nodes.keys()
+        # A coin of another course can have the name a coin of this one has, and hangs somewhere
+        # else, so coins held are let go of with the course they were placed on.
+        if game.course is not self._course:
+            self._course = game.course
+            self._placed.clear()
+            self.children = []
+        stale = [ident for ident, held in self._placed.items() if wanted.get(ident) != held.coin]
+        changed = bool(stale) or wanted.keys() != self._placed.keys()
         for ident in stale:
-            del self._nodes[ident]
-            del self._coins[ident]
+            del self._placed[ident]
         for ident, coin in wanted.items():
-            if ident not in self._nodes:
-                self._nodes[ident] = Transform(children=[self.shape_for(coin)])
-                self._coins[ident] = coin
-        for ident, node in self._nodes.items():
-            coin = self._coins[ident]
-            phase = coin.distance * 0.7
-            node.translation = (game.course.lane_x(coin.lane, coin.distance),
-                                float(c.ground_height(coin.distance)) + coin.height
-                                + BOB * math.sin(now * 2.5 + phase),
-                                -coin.distance)
-            node.rotation = (0.0, 1.0, 0.0, (now * SPIN + phase) % (2.0 * math.pi))
+            if ident not in self._placed:
+                placed = _Placed(coin, Transform(children=[self.shape_for(coin)]),
+                                 game.course.lane_x(coin.lane, coin.distance),
+                                 float(c.ground_height(coin.distance)) + coin.height,
+                                 coin.distance * 0.7)
+                placed.pose(now)
+                self._placed[ident] = placed
+        self._updates += 1
+        near = game.runner.distance + ANIMATE_NEAR
+        for number, placed in enumerate(self._placed.values()):
+            if placed.coin.distance <= near or (number + self._updates) % FAR_EVERY == 0:
+                placed.pose(now)
         if changed:
-            self.children = list(self._nodes.values())
+            self.children = [placed.node for placed in self._placed.values()]

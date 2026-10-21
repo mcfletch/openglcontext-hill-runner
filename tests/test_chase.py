@@ -230,3 +230,77 @@ def test_the_camera_stays_clear_of_the_floor_of_the_tunnel(seed):
                 near = np.hypot(floor[:, 0] - eye[0], floor[:, 2] - eye[2]).argmin()
                 lowest = min(lowest, eye[1] - floor[near, 1])
     assert lowest >= 0.6
+
+
+# -- the floor under the camera is looked up for a stretch of the run at a time -------------
+
+@pytest.fixture
+def lookups(monkeypatch):
+    """A landscape on the first course, and a list of the points its ground was asked about."""
+    land = ls.Landscape(c.Course(1))
+    asked = []
+    original = land.footing
+    monkeypatch.setattr(land, 'footing', lambda x, d: asked.append(np.size(d)) or original(x, d))
+    return land, asked
+
+
+def test_the_floor_under_the_camera_is_looked_up_once_for_the_next_few_metres(lookups):
+    land, asked = lookups
+    body = r.Runner(land.course)
+    body.distance = 500.0
+    follower = chase.Chase(body, land)
+    follower.advance(1 / 60)
+    assert len(asked) == 1
+    for _ in range(int(0.9 * chase.FLOOR_STALE / 0.1)):
+        body.distance += 0.1
+        follower.advance(1 / 60)
+    assert len(asked) == 1
+
+
+def test_the_floor_is_looked_up_again_once_the_run_has_gone_on(lookups):
+    land, asked = lookups
+    body = r.Runner(land.course)
+    body.distance = 500.0
+    follower = chase.Chase(body, land)
+    follower.advance(1 / 60)
+    body.distance += chase.FLOOR_STALE + 0.1
+    follower.advance(1 / 60)
+    assert len(asked) == 2
+
+
+def test_the_floor_is_looked_up_again_on_another_path(lookups):
+    land, asked = lookups
+    body = r.Runner(land.course)
+    body.distance = 500.0
+    follower = chase.Chase(body, land)
+    follower.advance(1 / 60)
+    body.lane = 0
+    follower.advance(1 / 60)
+    assert len(asked) == 2
+
+
+def test_the_floor_is_looked_up_again_when_the_run_goes_back(lookups):
+    land, asked = lookups
+    body = r.Runner(land.course)
+    body.distance = 500.0
+    follower = chase.Chase(body, land)
+    follower.advance(1 / 60)
+    body.distance -= 1.0
+    follower.advance(1 / 60)
+    assert len(asked) == 2
+
+
+@pytest.mark.parametrize('seed', [1, 2, 3])
+def test_a_floor_looked_up_a_few_metres_back_is_never_lower_than_one_looked_up_here(seed):
+    """What the camera is kept above is the highest ground under it; the stretch it is looked up
+    over reaches as far as the run goes before it is looked up again."""
+    land = ls.Landscape(c.Course(seed))
+    body = r.Runner(land.course)
+    held = chase.Chase(body, land)
+    worst = np.inf
+    for step in range(400):
+        body.distance = 300.0 + step * 0.4
+        held.advance(1 / 60)
+        fresh = chase.Chase(body, land)
+        worst = min(worst, held._floor_under_camera() - fresh._floor_under_camera())
+    assert worst >= -0.05

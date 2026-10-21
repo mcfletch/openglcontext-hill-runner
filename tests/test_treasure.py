@@ -128,3 +128,67 @@ def test_a_new_run_shows_its_own_coins_not_those_the_last_one_left_at_the_same_p
         assert -node.translation[2] == pytest.approx(coin.distance, abs=1e-3)
         assert node.translation[0] == pytest.approx(
             new.course.lane_x(coin.lane, coin.distance), abs=1e-3)
+
+
+def _nodes_by_distance(field):
+    return sorted(field.children, key=lambda node: -node.translation[2])
+
+
+def _spin(field, game, steps, start=0.0):
+    """The rotation of every node after each of ``steps`` updates, a frame apart."""
+    turns = []
+    for step in range(steps):
+        field.update(game, start + step * FRAME)
+        turns.append({node: node.rotation[3] for node in field.children})
+    return turns
+
+
+def test_a_coin_is_placed_once_however_many_updates_follow(field, game, monkeypatch):
+    game.runner.distance = 300.0
+    field.update(game, 0.0)
+    asked = []
+    original = game.course.lane_x
+    monkeypatch.setattr(game.course, 'lane_x', lambda *a: asked.append(a) or original(*a))
+    for step in range(1, 6):
+        field.update(game, step * FRAME)
+    assert asked == []
+
+
+def test_a_coin_near_the_runner_turns_on_every_update(field, game):
+    game.runner.distance = 300.0
+    turns = _spin(field, game, 6)
+    near = [node for node in field.children
+            if -node.translation[2] < game.runner.distance + tr.ANIMATE_NEAR]
+    assert near
+    for before, after in zip(turns, turns[1:], strict=False):
+        assert all(before[node] != after[node] for node in near)
+
+
+def test_a_coin_far_ahead_turns_on_some_updates_and_every_few(field, game):
+    game.runner.distance = 300.0
+    turns = _spin(field, game, 3 * tr.FAR_EVERY + 1)
+    far = [node for node in field.children
+           if -node.translation[2] > game.runner.distance + tr.ANIMATE_NEAR]
+    assert far
+    for node in far:
+        changes = sum(before[node] != after[node] for before, after in zip(turns, turns[1:], strict=False))
+        assert 0 < changes <= 3 * tr.FAR_EVERY // tr.FAR_EVERY + 1
+
+
+def test_every_coin_is_turned_within_a_few_updates(field, game):
+    game.runner.distance = 300.0
+    turns = _spin(field, game, tr.FAR_EVERY + 1)
+    for node in field.children:
+        assert len({turn[node] for turn in turns}) > 1
+
+
+def test_a_coin_coming_into_view_is_turned_and_placed_at_once(field, game):
+    game.runner.distance = 300.0
+    field.update(game, 0.0)
+    known = set(field.children)
+    game.runner.distance = 330.0
+    field.update(game, 1.0)
+    arrived = [node for node in field.children if node not in known]
+    assert arrived
+    for node in arrived:
+        assert node.rotation[3] != 0.0 and node.translation[0] != 0.0

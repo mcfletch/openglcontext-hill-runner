@@ -105,7 +105,14 @@ def ground_height(distance: Any) -> Any:
 
 def smooth(t: Any) -> np.ndarray:
     """0 below 0, 1 above 1, and between them ``3t^2 - 2t^3``: level at both ends."""
-    return np.asarray(smoothstep(np.clip(t, 0.0, 1.0)))
+    # Not np.clip, which takes several times as long on the few values this is mostly asked about.
+    return np.asarray(smoothstep(np.minimum(np.maximum(t, 0.0), 1.0)))
+
+
+def _smooth_number(t: float) -> float:
+    """:func:`smooth` of one number, as a number."""
+    t = 0.0 if t < 0.0 else 1.0 if t > 1.0 else t
+    return t * t * (3.0 - 2.0 * t)
 
 
 #: Each kind of randomness draws from a stream of its own, so that two of them never share
@@ -513,12 +520,25 @@ class Course:
         return tuple(sorted((*TRUNK, *fork.lanes)))
 
     def lane_x(self, lane: int, distance: float) -> float:
-        """Across the hill, where path ``lane`` lies at ``distance``."""
-        state = self.fork_state(distance)
+        """Across the hill, where path ``lane`` lies at ``distance``.
+
+        Worked out in plain numbers: it is asked for one place at a time, a dozen times a frame, and
+        NumPy takes longer over one place than the arithmetic does. :meth:`centre` and
+        :meth:`fork_state` give the same for a whole run of places at once.
+        """
+        d = float(distance)
+        wave = (math.sin(d / WANDER_WAVELENGTH + float(self._phase[0]))
+                + 0.5 * math.sin(d / (0.43 * WANDER_WAVELENGTH) + float(self._phase[1])))
+        centre = WANDER * _smooth_number((d - WANDER_FREE) / WANDER_START) * wave / 1.5
+        k = min(max(math.floor((d - FORK_FIRST) / FORK_SPACING), 0), FORK_LIMIT - 1)
+        start, end = float(self._fork_start[k]), float(self._fork_end[k])
         extra = 0.0
-        if state.running[0] and lane in Fork.lanes_of(int(state.side[0])):
-            extra = float(state.separation[0])
-        return float(self.centre(distance)) + lane_offset(lane) + extra
+        if d >= FORK_FIRST and start <= d <= end:
+            side = int(self._fork_side[k])
+            if lane in Fork.lanes_of(side):
+                extra = (side * FORK_SEPARATION * (_smooth_number((d - start) / FORK_DIVERGE)
+                                                   * _smooth_number((end - d) / FORK_DIVERGE)))
+        return centre + lane_offset(lane) + extra
 
     def lane_positions(self, distance: "np.ndarray") -> np.ndarray:
         """Where every path of :data:`ALL_LANES` lies at each distance, ``inf`` where it does
