@@ -436,6 +436,12 @@ class Course:
     def ceiling(self, distance: Any) -> Any:
         """How high the ceiling is over the paths at ``distance``, in metres, or ``inf`` where
         there is none; a number or an array."""
+        if np.ndim(distance) == 0:
+            # One place, asked every few milliseconds of a run, and mostly in the open.
+            at = float(distance)
+            k = min(max(math.floor((at - CAVE_FIRST) / CAVE_SPACING), 0), CAVE_LIMIT - 1)
+            if not self._cave_start[k] <= at < self._cave_end[k]:
+                return math.inf
         d = np.asarray(distance, dtype=np.float64)
         out = np.full(d.shape, np.inf)
         flat, flat_out = np.atleast_1d(d), np.atleast_1d(out)

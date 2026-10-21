@@ -372,3 +372,15 @@ def test_where_a_path_lies_is_what_the_array_methods_say(seed):
 
 def test_where_a_path_lies_is_a_number():
     assert isinstance(c.Course(1).lane_x(1, 100.0), float)
+
+
+@pytest.mark.parametrize('seed', [1, 2, 3])
+def test_the_ceiling_at_one_place_is_what_it_is_for_a_run_of_places(seed):
+    world = c.Course(seed)
+    cave = world.caves_between(0.0, 60000.0)[0]
+    places = np.concatenate([np.linspace(0.0, cave.start - 5.0, 40), np.linspace(cave.start - 3.0, cave.end + 3.0, 260),
+                             np.linspace(cave.end, cave.end + 4000.0, 60)])
+    each = [world.ceiling(float(d)) for d in places]
+    assert each == pytest.approx(list(world.ceiling(places)), abs=1e-12)
+    assert all(isinstance(value, float) for value in each)
+    assert any(np.isinf(each)) and any(np.isfinite(each))
