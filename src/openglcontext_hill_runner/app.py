@@ -87,9 +87,12 @@ class RunnerContext(RecordingMixin, Context):
     #: of the interpreter between frames. Shadows are made as far as 0.85 of the radius the near
     #: trees are drawn to and fade out over the last fifth of it, so a tree entering the set
     #: starts with no shadow, and the cascades are fitted to the trees rather than the farthest log.
+    #: The game draws textured PBR materials lit by the sun and the environment and none of the
+    #: PBR program's optional parts (glass, mirrors, zones, volumes, texture layers), so the
+    #: program is compiled without them, which halves the GPU time of the terrain on an Intel UHD 630.
     contextDefinition = ContextDefinition(navigation=None, title='Hill Runner', shadows=True,
                                           shadowCascades=3, shadowDistance=0.85 * NEAR_RADIUS,
-                                          vsync=True)
+                                          vsync=True, shaderFeatures='none')
 
     #: Set by ``run.main`` from the command line.
     seed = 1

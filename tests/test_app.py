@@ -19,6 +19,11 @@ def test_it_is_a_glfw_window_with_no_free_camera():
     assert not RunnerContext.resolveDefinition().navigation
 
 
+def test_the_pbr_program_is_compiled_without_the_parts_the_game_never_draws():
+    from OpenGLContext.passes.pbrpass import shader_features
+    assert shader_features(RunnerContext.resolveDefinition().shaderFeatures) == frozenset()
+
+
 def test_the_game_binds_the_arrow_keys_and_escape():
     from openglcontext_hill_runner.app import CONTROLS
     assert set(CONTROLS) == {'<left>', '<right>', '<up>', '<down>', '<escape>'}
